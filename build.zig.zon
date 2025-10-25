@@ -1,0 +1,13 @@
+.{
+    .name = .arcane,
+    .version = "0.0.0",
+    .fingerprint = 0x5758e4f7c305a4d6, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "stub",
+    },
+}
