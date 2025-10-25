@@ -33,8 +33,6 @@ pub fn main() !void {
     const exe = try std.fs.openFileAbsolute("/proc/self/exe", .{});
     const exe_size = (try exe.stat()).size;
 
-    const payload_end = exe_size - @sizeOf(u64);
-
     const exe_bytes = try posix.mmap(
         null,
         exe_size,
@@ -44,21 +42,13 @@ pub fn main() !void {
         0,
     );
 
-    const footer: *const common.Footer = @ptrCast(
-        exe_bytes[payload_end..][0..@sizeOf(common.Footer)].ptr,
-    );
-    const payload_offset = std.mem.readInt(common.Footer.OffsetType, &footer.offset, .little);
-
-    const header: *const common.Header = @ptrCast(
-        exe_bytes[payload_offset..][0..@sizeOf(common.Header)].ptr,
-    );
-    const payload_size = exe_size - payload_offset - @sizeOf(common.Header) - @sizeOf(common.Footer);
-
-    const encrypted_payload = exe_bytes[payload_offset + @sizeOf(common.Header) ..][0..payload_size];
+    var payload = common.Payload.fromData(exe_bytes);
+    const header = payload.header();
+    const footer = payload.footer();
 
     const decrypted_payload = try posix.mmap(
         null,
-        payload_size,
+        payload.payload().len,
         posix.PROT.WRITE,
         .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
         -1,
@@ -67,7 +57,7 @@ pub fn main() !void {
 
     try AesGcm.decrypt(
         decrypted_payload,
-        encrypted_payload,
+        payload.payload(),
         header.tag,
         &footer.offset,
         header.nonce,

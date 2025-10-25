@@ -25,35 +25,16 @@ pub fn main() !void {
 
     const payload = try reader.interface.readAlloc(arena, payload_size);
 
-    var compressed_payload = try arena.alloc(u8, payload_size);
-    const compressed_size = zstd.ZSTD_compress(
-        compressed_payload.ptr,
-        compressed_payload.len,
-        payload.ptr,
-        payload.len,
-        22,
-    );
-    if (zstd.ZSTD_isError(compressed_size) != 0) {
-        std.debug.print("libzstd: {s}\n", .{zstd.ZSTD_getErrorName(compressed_size)});
-        return error.ZstdError;
-    }
+    const compressed_payload = try compress(arena, payload);
 
-    compressed_payload = compressed_payload[0..compressed_size];
-
-    const full_payload_size = @sizeOf(common.Header) + compressed_size + @sizeOf(common.Footer);
-    var full_payload = try arena.alloc(u8, full_payload_size);
-
-    const header: *common.Header = @ptrCast(
-        full_payload[0..@sizeOf(common.Header)].ptr,
-    );
-    const footer: *common.Footer = @ptrCast(
-        full_payload[@sizeOf(common.Header) + compressed_size ..][0..@sizeOf(common.Footer)].ptr,
-    );
-    const encrypted_payload = full_payload[@sizeOf(common.Header)..][0..compressed_size];
+    var full_payload = try common.Payload.init(arena, compressed_payload.len);
+    const header: *common.Header = full_payload.header();
+    const footer: *common.Footer = full_payload.footer();
+    const encrypted_payload = full_payload.payload();
 
     std.crypto.random.bytes(&header.nonce);
 
-    std.mem.writeInt(common.Footer.OffsetType, &footer.offset, stub.len, .little);
+    footer.writeOffset(stub.len);
 
     common.AesGcm.encrypt(
         encrypted_payload,
@@ -68,6 +49,23 @@ pub fn main() !void {
     var writer = out_file.writerStreaming(&write_buf);
 
     try writer.interface.writeAll(stub);
-    try writer.interface.writeAll(full_payload);
+    try writer.interface.writeAll(full_payload.data);
     try writer.end();
+}
+
+fn compress(allocator: std.mem.Allocator, data: []u8) ![]u8 {
+    const upper_bound = zstd.ZSTD_compressBound(data.len);
+    const compressed_data = try allocator.alloc(u8, upper_bound);
+    const compressed_size = zstd.ZSTD_compress(
+        compressed_data.ptr,
+        compressed_data.len,
+        data.ptr,
+        data.len,
+        22,
+    );
+    if (zstd.ZSTD_isError(compressed_size) != 0) {
+        std.log.err("libzstd: {s}", .{zstd.ZSTD_getErrorName(compressed_size)});
+        return error.ZstdError;
+    }
+    return compressed_data[0..compressed_size];
 }
