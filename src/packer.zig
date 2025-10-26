@@ -8,9 +8,12 @@ const common = @import("common.zig");
 
 const stub linksection(".stub") = @embedFile("stub");
 
-const pw = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-
-pub fn pack(allocator: std.mem.Allocator, in_file: std.fs.File, out_file: std.fs.File) !void {
+pub fn pack(
+    allocator: std.mem.Allocator,
+    in_file: std.fs.File,
+    out_file: std.fs.File,
+    password: []const u8,
+) !void {
     var read_buf: [4096]u8 = undefined;
     var reader = in_file.reader(&read_buf);
     const payload_size = try reader.getSize();
@@ -30,7 +33,7 @@ pub fn pack(allocator: std.mem.Allocator, in_file: std.fs.File, out_file: std.fs
     footer.writeOffset(stub.len);
 
     var key: [common.Aead.key_length]u8 = undefined;
-    try common.kdf(allocator, &key, pw, &header.salt);
+    try common.kdf(allocator, &key, password, &header.salt);
 
     common.Aead.encrypt(
         encrypted_payload,

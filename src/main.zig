@@ -3,6 +3,7 @@ const posix = std.posix;
 
 const cli = @import("cli");
 
+const common = @import("common.zig");
 const packer = @import("packer.zig");
 
 var pack_config = struct {
@@ -53,6 +54,17 @@ fn packCommand(r: *cli.AppRunner) !cli.Command {
                 .value_ref = r.mkRef(&pack_config.out_path),
                 .value_name = "PATH",
             },
+            cli.Option{
+                .long_name = "password",
+                .short_alias = 'p',
+                .help =
+                \\Set password to decrypt the packed executable.
+                \\Will be prompted if not set.
+                ,
+                .value_ref = r.mkRef(&pack_config.password),
+                .value_name = "PASSWORD",
+                .envvar = "ARCANE_PASSWORD",
+            },
         }),
         .target = cli.CommandTarget{
             .action = cli.CommandAction{
@@ -85,5 +97,28 @@ fn pack() !void {
     );
     defer out_file.close();
 
-    try packer.pack(arena, in_file, out_file);
+    var write_buf: [4096]u8 = undefined;
+    var writer = std.fs.File.stdout().writer(&write_buf);
+    var read_buf: [4096]u8 = undefined;
+    var reader = std.fs.File.stdin().reader(&read_buf);
+    const password = pack_config.password orelse try getPassword(&reader.interface, &writer.interface);
+
+    try packer.pack(arena, in_file, out_file, password);
+}
+
+fn getPassword(reader: *std.Io.Reader, writer: *std.Io.Writer) ![]u8 {
+    const pw = common.promptPassword(arena, reader, writer) catch |err| switch (err) {
+        error.EmptyPassword => {
+            _ = try writer.write("No password set.\n");
+            try writer.flush();
+            return error.EmptyPassword;
+        },
+        error.NotATerminal => {
+            _ = try writer.write("Input is not a TTY, use -p or ARCANE_PASSWORD to set password.\n");
+            try writer.flush();
+            return err;
+        },
+        else => return err,
+    };
+    return pw;
 }

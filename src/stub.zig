@@ -22,8 +22,6 @@ const syscalls = struct {
     }
 };
 
-const pw = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-
 // based on https://github.com/facebook/zstd/blob/dev/lib/compress/clevels.h
 // Using the power of two of W for the highest compression level
 const zstd_window_size = 1 << 27;
@@ -33,12 +31,18 @@ pub fn main() !void {
     const arena = arena_allocator.allocator();
     defer arena_allocator.deinit();
 
-    var payload = try extractPayload();
-    const decrypted_payload = try decryptPayload(arena, &payload);
+    var write_buf: [4096]u8 = undefined;
+    var writer = std.fs.File.stdout().writer(&write_buf);
+    var read_buf: [4096]u8 = undefined;
+    var reader = std.fs.File.stdin().reader(&read_buf);
+    const password = try getPassword(arena, &reader.interface, &writer.interface);
 
-    var reader = std.Io.Reader.fixed(decrypted_payload);
+    var payload = try extractPayload();
+    const decrypted_payload = try decryptPayload(arena, &payload, password);
+
+    var decrypted_payload_reader = std.Io.Reader.fixed(decrypted_payload);
     var decompress = std.compress.zstd.Decompress.init(
-        &reader,
+        &decrypted_payload_reader,
         &.{},
         .{ .window_len = zstd_window_size },
     );
@@ -63,14 +67,26 @@ fn extractPayload() !common.Payload {
     return common.Payload.fromData(exe_bytes);
 }
 
-fn decryptPayload(allocator: std.mem.Allocator, payload: *common.Payload) ![]u8 {
+fn getPassword(allocator: std.mem.Allocator, reader: *std.Io.Reader, writer: *std.Io.Writer) ![]u8 {
+    const pw = common.promptPassword(allocator, reader, writer) catch |err| switch (err) {
+        error.NotATerminal => {
+            _ = try writer.write("Input is not a TTY.\n");
+            try writer.flush();
+            return err;
+        },
+        else => return err,
+    };
+    return pw;
+}
+
+fn decryptPayload(allocator: std.mem.Allocator, payload: *common.Payload, password: []const u8) ![]u8 {
     const header = payload.header();
     const footer = payload.footer();
 
     const decrypted_payload = try allocator.alloc(u8, payload.payload().len);
 
     var key: [common.Aead.key_length]u8 = undefined;
-    try common.kdf(allocator, &key, pw, &header.salt);
+    try common.kdf(allocator, &key, password, &header.salt);
 
     try common.Aead.decrypt(
         decrypted_payload,
