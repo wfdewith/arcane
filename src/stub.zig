@@ -33,6 +33,21 @@ pub fn main() !void {
     const arena = arena_allocator.allocator();
     defer arena_allocator.deinit();
 
+    var payload = try extractPayload();
+    const decrypted_payload = try decryptPayload(arena, &payload);
+
+    var reader = std.Io.Reader.fixed(decrypted_payload);
+    var decompress = std.compress.zstd.Decompress.init(
+        &reader,
+        &.{},
+        .{ .window_len = zstd_window_size },
+    );
+
+    const memfd = try createMemfd(arena, &decompress.reader);
+    exec(memfd);
+}
+
+fn extractPayload() !common.Payload {
     const exe = try std.fs.openFileAbsolute("/proc/self/exe", .{});
     const exe_size = (try exe.stat()).size;
 
@@ -45,14 +60,17 @@ pub fn main() !void {
         0,
     );
 
-    var payload = common.Payload.fromData(exe_bytes);
+    return common.Payload.fromData(exe_bytes);
+}
+
+fn decryptPayload(allocator: std.mem.Allocator, payload: *common.Payload) ![]u8 {
     const header = payload.header();
     const footer = payload.footer();
 
-    const decrypted_payload = try arena.alloc(u8, payload.payload().len);
+    const decrypted_payload = try allocator.alloc(u8, payload.payload().len);
 
     var key: [common.Aead.key_length]u8 = undefined;
-    try common.kdf(arena, &key, pw, &header.salt);
+    try common.kdf(allocator, &key, pw, &header.salt);
 
     try common.Aead.decrypt(
         decrypted_payload,
@@ -62,25 +80,24 @@ pub fn main() !void {
         header.nonce,
         key,
     );
+    return decrypted_payload;
+}
 
-    var reader = std.Io.Reader.fixed(decrypted_payload);
-    var decompress = std.compress.zstd.Decompress.init(
-        &reader,
-        &.{},
-        .{ .window_len = zstd_window_size },
-    );
-
+fn createMemfd(allocator: std.mem.Allocator, reader: *std.Io.Reader) !std.fs.File {
     const memfd = try std.posix.memfd_create("", std.posix.MFD.CLOEXEC);
     const memfd_file = std.fs.File{ .handle = memfd };
 
-    const write_buf = try arena.alloc(u8, zstd_window_size);
+    const write_buf = try allocator.alloc(u8, zstd_window_size);
     var writer = memfd_file.writerStreaming(write_buf);
-    _ = try decompress.reader.streamRemaining(&writer.interface);
+    _ = try reader.streamRemaining(&writer.interface);
     try writer.end();
+    return memfd_file;
+}
 
+fn exec(file: std.fs.File) noreturn {
     const argvp = @as([*:null]const ?[*:0]const u8, @ptrCast(std.os.argv.ptr));
     const envp = @as([*:null]const ?[*:0]const u8, @ptrCast(std.os.environ.ptr));
-    if (syscalls.execveat(memfd, "", argvp, envp, posix.AT.EMPTY_PATH) != 0) {
+    if (syscalls.execveat(file.handle, "", argvp, envp, posix.AT.EMPTY_PATH) != 0) {
         std.posix.exit(1);
-    }
+    } else unreachable;
 }
