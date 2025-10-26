@@ -1,8 +1,7 @@
 const std = @import("std");
+const posix = std.posix;
 
 const common = @import("common.zig");
-
-const posix = std.posix;
 
 const syscalls = struct {
     fn execveat(
@@ -22,8 +21,6 @@ const syscalls = struct {
         );
     }
 };
-
-const AesGcm = std.crypto.aead.aes_gcm.Aes256Gcm;
 
 const key = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -55,7 +52,7 @@ pub fn main() !void {
         0,
     );
 
-    try AesGcm.decrypt(
+    try common.Aead.decrypt(
         decrypted_payload,
         payload.payload(),
         header.tag,

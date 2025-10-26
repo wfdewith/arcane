@@ -36,7 +36,7 @@ pub fn main() !void {
 
     footer.writeOffset(stub.len);
 
-    common.AesGcm.encrypt(
+    common.Aead.encrypt(
         encrypted_payload,
         &header.tag,
         compressed_payload,
