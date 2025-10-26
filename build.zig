@@ -4,6 +4,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const zli_dep = b.dependency("zli", .{ .target = target, .optimize = optimize });
+
     const stub_mod = b.createModule(.{
         .root_source_file = b.path("src/stub.zig"),
         .target = target,
@@ -28,6 +30,7 @@ pub fn build(b: *std.Build) void {
     packer_mod.addAnonymousImport("stub", .{
         .root_source_file = stub_exe.getEmittedBin(),
     });
+    packer_mod.addImport("zli", zli_dep.module("zli"));
 
     const packer_exe = b.addExecutable(.{
         .name = "arcane",

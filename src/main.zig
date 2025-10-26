@@ -1,74 +1,59 @@
 const std = @import("std");
 
-const common = @import("common.zig");
+const zli = @import("zli");
 
-const zstd = @cImport(@cInclude("zstd.h"));
-
-const stub linksection(".stub") = @embedFile("stub");
-
-const pw = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const packer = @import("packer.zig");
 
 pub fn main() !void {
     var arena_allocator = std.heap.ArenaAllocator.init(std.heap.c_allocator);
     const arena = arena_allocator.allocator();
     defer arena_allocator.deinit();
 
-    const out_file = try std.fs.cwd().createFile("test", .{});
-    defer out_file.close();
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    var stdout = &stdout_writer.interface;
 
-    const in_file = try std.fs.openFileAbsolute("/usr/bin/ls", .{});
-    defer in_file.close();
+    const buf = try arena.alloc(u8, 4096);
+    var stdin_reader = std.fs.File.stdin().readerStreaming(buf);
+    const stdin = &stdin_reader.interface;
 
-    var read_buf: [4096]u8 = undefined;
-    var reader = in_file.reader(&read_buf);
-    const payload_size = try reader.getSize();
-
-    const payload = try reader.interface.readAlloc(arena, payload_size);
-
-    const compressed_payload = try compress(arena, payload);
-
-    var full_payload = try common.Payload.init(arena, compressed_payload.len);
-    const header: *common.Header = full_payload.header();
-    const footer: *common.Footer = full_payload.footer();
-    const encrypted_payload = full_payload.payload();
-
-    std.crypto.random.bytes(&header.nonce);
-
-    footer.writeOffset(stub.len);
-
-    var key: [common.Aead.key_length]u8 = undefined;
-    try common.kdf(arena, &key, pw, &header.salt);
-
-    common.Aead.encrypt(
-        encrypted_payload,
-        &header.tag,
-        compressed_payload,
-        &footer.offset,
-        header.nonce,
-        key,
-    );
-
-    var write_buf: [4096]u8 = undefined;
-    var writer = out_file.writerStreaming(&write_buf);
-
-    try writer.interface.writeAll(stub);
-    try writer.interface.writeAll(full_payload.data);
-    try writer.end();
+    const cli = try buildCli(stdout, stdin, arena);
+    try cli.execute(.{});
+    try stdout.flush();
 }
 
-fn compress(allocator: std.mem.Allocator, data: []u8) ![]u8 {
-    const upper_bound = zstd.ZSTD_compressBound(data.len);
-    const compressed_data = try allocator.alloc(u8, upper_bound);
-    const compressed_size = zstd.ZSTD_compress(
-        compressed_data.ptr,
-        compressed_data.len,
-        data.ptr,
-        data.len,
-        22,
-    );
-    if (zstd.ZSTD_isError(compressed_size) != 0) {
-        std.log.err("libzstd: {s}", .{zstd.ZSTD_getErrorName(compressed_size)});
-        return error.ZstdError;
-    }
-    return compressed_data[0..compressed_size];
+fn buildCli(writer: *std.Io.Writer, reader: *std.Io.Reader, allocator: std.mem.Allocator) !*zli.Command {
+    const root = try zli.Command.init(writer, reader, allocator, .{
+        .name = "arcane",
+        .description = "A simple packer for Linux",
+    }, run);
+
+    try root.addPositionalArg(.{
+        .name = "input",
+        .description = "Executable to pack",
+        .required = true,
+    });
+    try root.addFlag(.{
+        .name = "output",
+        .shortcut = "o",
+        .description = "Output executable (defaults to '<input>.packed')",
+        .type = .String,
+        .default_value = .{ .String = "" },
+    });
+    return root;
+}
+
+fn run(ctx: zli.CommandContext) !void {
+    const in_path = ctx.getArg("input").?;
+    const in_file = try std.fs.openFileAbsolute(in_path, .{});
+    defer in_file.close();
+
+    const output_flag = ctx.flag("output", []const u8);
+    const out_path = if (output_flag.len != 0) output_flag else blk: {
+        const p = try std.fmt.allocPrint(ctx.allocator, "{s}.packed", .{in_path});
+        break :blk std.fs.path.basename(p);
+    };
+    const out_file = try std.fs.cwd().createFile(out_path, .{});
+    defer out_file.close();
+
+    try packer.pack(ctx.allocator, in_file, out_file);
 }

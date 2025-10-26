@@ -3,7 +3,12 @@
     .version = "0.0.0",
     .fingerprint = 0x5758e4f7c305a4d6, // Changing this has security and trust implications.
     .minimum_zig_version = "0.15.2",
-    .dependencies = .{},
+    .dependencies = .{
+        .zli = .{
+            .url = "https://github.com/xcaeser/zli/archive/v4.2.0.tar.gz",
+            .hash = "zli-4.2.0-LeUjpkbkAACgsvIg905xMTcMHBlraRzlyRPYg-Gcgr6Z",
+        },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",
