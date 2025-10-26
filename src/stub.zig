@@ -24,7 +24,9 @@ const syscalls = struct {
 
 const pw = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-var write_buf: [std.compress.zstd.default_window_len]u8 = undefined;
+// based on https://github.com/facebook/zstd/blob/dev/lib/compress/clevels.h
+// Using the power of two of W for the highest compression level
+const zstd_window_size = 1 << 27;
 
 pub fn main() !void {
     var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -62,12 +64,17 @@ pub fn main() !void {
     );
 
     var reader = std.Io.Reader.fixed(decrypted_payload);
-    var decompress = std.compress.zstd.Decompress.init(&reader, &.{}, .{});
+    var decompress = std.compress.zstd.Decompress.init(
+        &reader,
+        &.{},
+        .{ .window_len = zstd_window_size },
+    );
 
     const memfd = try std.posix.memfd_create("", std.posix.MFD.CLOEXEC);
     const memfd_file = std.fs.File{ .handle = memfd };
 
-    var writer = memfd_file.writerStreaming(&write_buf);
+    const write_buf = try arena.alloc(u8, zstd_window_size);
+    var writer = memfd_file.writerStreaming(write_buf);
     _ = try decompress.reader.streamRemaining(&writer.interface);
     try writer.end();
 
