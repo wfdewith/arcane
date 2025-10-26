@@ -1,4 +1,5 @@
 const std = @import("std");
+const posix = std.posix;
 
 const zli = @import("zli");
 
@@ -52,7 +53,10 @@ fn run(ctx: zli.CommandContext) !void {
         const p = try std.fmt.allocPrint(ctx.allocator, "{s}.packed", .{in_path});
         break :blk std.fs.path.basename(p);
     };
-    const out_file = try std.fs.cwd().createFile(out_path, .{});
+    const out_file = try std.fs.cwd().createFile(
+        out_path,
+        .{ .mode = posix.S.IRWXU | posix.S.IRWXG | posix.S.IRWXO },
+    );
     defer out_file.close();
 
     try packer.pack(ctx.allocator, in_file, out_file);
