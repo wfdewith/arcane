@@ -22,11 +22,15 @@ const syscalls = struct {
     }
 };
 
-const key = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const pw = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 var write_buf: [std.compress.zstd.default_window_len]u8 = undefined;
 
 pub fn main() !void {
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const arena = arena_allocator.allocator();
+    defer arena_allocator.deinit();
+
     const exe = try std.fs.openFileAbsolute("/proc/self/exe", .{});
     const exe_size = (try exe.stat()).size;
 
@@ -43,14 +47,10 @@ pub fn main() !void {
     const header = payload.header();
     const footer = payload.footer();
 
-    const decrypted_payload = try posix.mmap(
-        null,
-        payload.payload().len,
-        posix.PROT.WRITE,
-        .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-        -1,
-        0,
-    );
+    const decrypted_payload = try arena.alloc(u8, payload.payload().len);
+
+    var key: [common.Aead.key_length]u8 = undefined;
+    try common.kdf(arena, &key, pw, &header.salt);
 
     try common.Aead.decrypt(
         decrypted_payload,
@@ -58,7 +58,7 @@ pub fn main() !void {
         header.tag,
         &footer.offset,
         header.nonce,
-        key.*,
+        key,
     );
 
     var reader = std.Io.Reader.fixed(decrypted_payload);

@@ -6,7 +6,7 @@ const zstd = @cImport(@cInclude("zstd.h"));
 
 const stub linksection(".stub") = @embedFile("stub");
 
-const key = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const pw = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 pub fn main() !void {
     var arena_allocator = std.heap.ArenaAllocator.init(std.heap.c_allocator);
@@ -36,13 +36,16 @@ pub fn main() !void {
 
     footer.writeOffset(stub.len);
 
+    var key: [common.Aead.key_length]u8 = undefined;
+    try common.kdf(arena, &key, pw, &header.salt);
+
     common.Aead.encrypt(
         encrypted_payload,
         &header.tag,
         compressed_payload,
         &footer.offset,
         header.nonce,
-        key.*,
+        key,
     );
 
     var write_buf: [4096]u8 = undefined;
