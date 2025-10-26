@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const argon2 = std.crypto.pwhash.argon2;
 
 const zstd = @cImport(@cInclude("zstd.h"));
@@ -56,7 +57,7 @@ fn compress(allocator: std.mem.Allocator, data: []u8) ![]u8 {
         compressed_data.len,
         data.ptr,
         data.len,
-        22,
+        if (builtin.mode == .Debug) 1 else 22,
     );
     if (zstd.ZSTD_isError(compressed_size) != 0) {
         std.log.err("libzstd: {s}", .{zstd.ZSTD_getErrorName(compressed_size)});

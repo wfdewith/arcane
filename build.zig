@@ -3,14 +3,14 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const stub_optimize: std.builtin.OptimizeMode = if (optimize == .Debug) .Debug else .ReleaseSmall;
 
     const zli_dep = b.dependency("zli", .{ .target = target, .optimize = optimize });
 
     const stub_mod = b.createModule(.{
         .root_source_file = b.path("src/stub.zig"),
         .target = target,
-        .optimize = .ReleaseSmall,
-        // .optimize = .Debug,
+        .optimize = stub_optimize,
     });
 
     const stub_exe = b.addExecutable(.{

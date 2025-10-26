@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 pub const Aead = std.crypto.aead.aes_gcm.Aes256Gcm;
 
 const salt_length = 16;
@@ -54,10 +55,17 @@ pub const Payload = struct {
 
 pub fn kdf(allocator: std.mem.Allocator, derived_key: []u8, password: []const u8, salt: []const u8) !void {
     const argon2 = std.crypto.pwhash.argon2;
-    const params: argon2.Params = .{
-        .p = 8,
-        .m = 2 * 1024 * 1024,
-        .t = 1,
-    };
+    const params: argon2.Params = if (builtin.mode == .Debug)
+        .{
+            .p = 1,
+            .m = 2 * 1024,
+            .t = 1,
+        }
+    else
+        .{
+            .p = 8,
+            .m = 2 * 1024 * 1024,
+            .t = 1,
+        };
     return argon2.kdf(allocator, derived_key, password, salt, params, .argon2d);
 }
