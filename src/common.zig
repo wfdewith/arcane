@@ -72,13 +72,28 @@ pub fn kdf(allocator: std.mem.Allocator, derived_key: []u8, password: []const u8
     return argon2.kdf(allocator, derived_key, password, salt, params, .argon2d);
 }
 
-pub fn promptPassword(allocator: std.mem.Allocator, reader: *std.Io.Reader, writer: *std.Io.Writer) ![]u8 {
-    const termios = try posix.tcgetattr(posix.STDIN_FILENO);
-    defer _ = posix.tcsetattr(posix.STDIN_FILENO, posix.TCSA.NOW, termios) catch {};
+pub fn promptPassword(allocator: std.mem.Allocator) ![]u8 {
+    var tty = std.fs.openFileAbsolute(
+        "/dev/tty",
+        .{ .mode = .read_write },
+    ) catch |err| switch (err) {
+        error.FileNotFound => return error.NotATerminal,
+        else => return err,
+    };
+
+    var read_buf: [4096]u8 = undefined;
+    var tty_reader = tty.readerStreaming(&read_buf);
+    var reader = &tty_reader.interface;
+    var write_buf: [4096]u8 = undefined;
+    var tty_writer = tty.writerStreaming(&write_buf);
+    var writer = &tty_writer.interface;
+
+    const termios = try posix.tcgetattr(tty.handle);
+    defer _ = posix.tcsetattr(tty.handle, posix.TCSA.NOW, termios) catch {};
     var new_termios = termios;
     new_termios.lflag.ECHO = false;
     new_termios.lflag.ICANON = false;
-    try posix.tcsetattr(posix.STDIN_FILENO, posix.TCSA.NOW, new_termios);
+    try posix.tcsetattr(tty.handle, posix.TCSA.NOW, new_termios);
 
     _ = try writer.write("Password: ");
     try writer.flush();

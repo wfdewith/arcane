@@ -31,11 +31,7 @@ pub fn main() !void {
     const arena = arena_allocator.allocator();
     defer arena_allocator.deinit();
 
-    var write_buf: [4096]u8 = undefined;
-    var writer = std.fs.File.stdout().writer(&write_buf);
-    var read_buf: [4096]u8 = undefined;
-    var reader = std.fs.File.stdin().reader(&read_buf);
-    const password = try getPassword(arena, &reader.interface, &writer.interface);
+    const password = try getPassword(arena);
 
     var payload = try extractPayload();
     const decrypted_payload = try decryptPayload(arena, &payload, password);
@@ -67,11 +63,10 @@ fn extractPayload() !common.Payload {
     return common.Payload.fromData(exe_bytes);
 }
 
-fn getPassword(allocator: std.mem.Allocator, reader: *std.Io.Reader, writer: *std.Io.Writer) ![]u8 {
-    const pw = common.promptPassword(allocator, reader, writer) catch |err| switch (err) {
+fn getPassword(allocator: std.mem.Allocator) ![]u8 {
+    const pw = common.promptPassword(allocator) catch |err| switch (err) {
         error.NotATerminal => {
-            _ = try writer.write("Input is not a TTY.\n");
-            try writer.flush();
+            _ = std.log.err("Input is not a TTY.", .{});
             return err;
         },
         else => return err,
