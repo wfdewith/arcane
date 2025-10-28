@@ -34,17 +34,25 @@ pub fn main() !void {
     const password = try getPassword(arena);
 
     var payload = try extractPayload();
-    const decrypted_payload = try decryptPayload(arena, &payload, password);
+    var private_payload = try decryptPayload(arena, &payload, password);
 
-    var decrypted_payload_reader = std.Io.Reader.fixed(decrypted_payload);
+    var compressed_executable_reader = std.Io.Reader.fixed(private_payload.executable());
     var decompress = std.compress.zstd.Decompress.init(
-        &decrypted_payload_reader,
+        &compressed_executable_reader,
         &.{},
         .{ .window_len = zstd_window_size },
     );
 
+    var env_map = try std.process.getEnvMap(arena);
+    defer env_map.deinit();
+
+    var env_it = private_payload.envIterator();
+    while (env_it.next()) |env_var| {
+        try env_map.put(env_var.name, env_var.value);
+    }
+
     const memfd = try createMemfd(arena, &decompress.reader);
-    exec(memfd);
+    try exec(arena, memfd, &env_map);
 }
 
 fn extractPayload() !common.Payload {
@@ -74,24 +82,29 @@ fn getPassword(allocator: std.mem.Allocator) ![]u8 {
     return pw;
 }
 
-fn decryptPayload(allocator: std.mem.Allocator, payload: *common.Payload, password: []const u8) ![]u8 {
+fn decryptPayload(
+    allocator: std.mem.Allocator,
+    payload: *common.Payload,
+    password: []const u8,
+) !common.PrivatePayload {
     const header = payload.header();
     const footer = payload.footer();
 
-    const decrypted_payload = try allocator.alloc(u8, payload.payload().len);
+    const decrypted_payload = try allocator.alloc(u8, payload.encryptedPayload().len);
 
     var key: [common.Aead.key_length]u8 = undefined;
     try common.kdf(allocator, &key, password, &header.salt);
 
     try common.Aead.decrypt(
         decrypted_payload,
-        payload.payload(),
+        payload.encryptedPayload(),
         header.tag,
         &footer.offset,
         header.nonce,
         key,
     );
-    return decrypted_payload;
+
+    return common.PrivatePayload.fromData(decrypted_payload, header.executable_offset);
 }
 
 fn createMemfd(allocator: std.mem.Allocator, reader: *std.Io.Reader) !std.fs.File {
@@ -105,10 +118,10 @@ fn createMemfd(allocator: std.mem.Allocator, reader: *std.Io.Reader) !std.fs.Fil
     return memfd_file;
 }
 
-fn exec(file: std.fs.File) noreturn {
+fn exec(allocator: std.mem.Allocator, file: std.fs.File, env: *const std.process.EnvMap) !noreturn {
     const argvp = @as([*:null]const ?[*:0]const u8, @ptrCast(std.os.argv.ptr));
-    const envp = @as([*:null]const ?[*:0]const u8, @ptrCast(std.os.environ.ptr));
+    const envp = try std.process.createNullDelimitedEnvMap(allocator, env);
     if (syscalls.execveat(file.handle, "", argvp, envp, posix.AT.EMPTY_PATH) != 0) {
-        std.posix.exit(1);
+        return error.ExecFailed;
     } else unreachable;
 }

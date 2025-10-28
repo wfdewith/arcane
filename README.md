@@ -45,7 +45,6 @@ The executable will be located at `zig-out/bin/arcane`.
 
 ## Future Work
 
-* Allow bundling of extra environment variables, which can be used to bundle credentials in the encrypted archive.
 * Supporting packing scripts (`#!/path/to/interpreter`).
 * An `unpack` command to get the original executable back.
 

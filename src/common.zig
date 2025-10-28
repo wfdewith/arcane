@@ -1,17 +1,28 @@
 const std = @import("std");
 const builtin = @import("builtin");
-pub const Aead = std.crypto.aead.aes_gcm.Aes256Gcm;
+
 const posix = std.posix;
+const process = std.process;
+const Io = std.Io;
+const math = std.math;
+
+pub const Aead = std.crypto.aead.aes_gcm.Aes256Gcm;
 
 const buf_size = 4096;
 
 const salt_length = 16;
 const password_length = 1024;
 
+pub const EnvVar = struct {
+    name: []const u8,
+    value: []const u8,
+};
+
 pub const Header = extern struct {
     salt: [salt_length]u8,
     nonce: [Aead.nonce_length]u8,
     tag: [Aead.tag_length]u8,
+    executable_offset: usize,
 };
 
 pub const Footer = extern struct {
@@ -28,32 +39,116 @@ pub const Footer = extern struct {
 };
 
 pub const Payload = struct {
+    const Self = @This();
+
     data: []u8,
 
-    pub fn init(allocator: std.mem.Allocator, size: usize) std.mem.Allocator.Error!Payload {
-        const data = try allocator.alloc(u8, @sizeOf(Header) + size + @sizeOf(Footer));
+    pub fn init(allocator: std.mem.Allocator, private_size: usize) std.mem.Allocator.Error!Payload {
+        const data = try allocator.alloc(
+            u8,
+            @sizeOf(Header) + private_size + @sizeOf(Footer),
+        );
         return Payload{ .data = data };
+    }
+
+    pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
+        allocator.free(self.data);
     }
 
     pub fn fromData(data: []u8) Payload {
         const footer_offset = data.len - @sizeOf(Footer);
-        const f: *Footer = @ptrCast(data[footer_offset..].ptr);
+        const f = std.mem.bytesAsValue(Footer, data[footer_offset..]);
         const offset = f.readOffset();
         return Payload{ .data = data[offset..] };
     }
 
-    pub fn header(self: *@This()) *Header {
-        return @ptrCast(self.data[0..@sizeOf(Header)].ptr);
+    pub fn header(self: *Self) *align(1) Header {
+        return std.mem.bytesAsValue(Header, self.data[0..@sizeOf(Header)]);
     }
 
-    pub fn footer(self: *@This()) *Footer {
+    pub fn footer(self: *Self) *align(1) Footer {
         const footer_offset = self.data.len - @sizeOf(Footer);
-        return @ptrCast(self.data[footer_offset..].ptr);
+        return std.mem.bytesAsValue(Footer, self.data[footer_offset..]);
     }
 
-    pub fn payload(self: *@This()) []u8 {
+    pub fn encryptedPayload(self: *Self) []u8 {
+        const header_offset = @sizeOf(Header);
         const footer_offset = self.data.len - @sizeOf(Footer);
-        return self.data[@sizeOf(Header)..footer_offset];
+        return self.data[header_offset..footer_offset];
+    }
+};
+
+pub const PrivatePayload = struct {
+    const Self = @This();
+
+    data: []u8,
+    executable_offset: usize,
+
+    pub const EnvIter = struct {
+        payload: *Self,
+        reader: Io.Reader,
+        num: u32,
+        idx: u32,
+
+        pub fn next(iter: *EnvIter) ?EnvVar {
+            if (iter.idx >= iter.num) return null;
+            const name_len = iter.reader.takeInt(u16, .little) catch return null;
+            const name = iter.reader.take(name_len) catch return null;
+            const value_len = iter.reader.takeInt(u16, .little) catch return null;
+            const value = iter.reader.take(value_len) catch return null;
+            iter.idx += 1;
+            return EnvVar{
+                .name = name,
+                .value = value,
+            };
+        }
+    };
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        env_map: *const process.EnvMap,
+        compressed_executable: []const u8,
+    ) !PrivatePayload {
+        var writer = Io.Writer.Allocating.init(allocator);
+        try encodeEnv(&writer.writer, env_map);
+        const offset = writer.written().len;
+        try writer.writer.writeAll(compressed_executable);
+        return PrivatePayload{
+            .data = try writer.toOwnedSlice(),
+            .executable_offset = offset,
+        };
+    }
+
+    pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
+        allocator.free(self.data);
+    }
+
+    pub fn fromData(data: []u8, executable_offset: usize) PrivatePayload {
+        std.debug.assert(executable_offset <= data.len);
+        return PrivatePayload{
+            .data = data,
+            .executable_offset = executable_offset,
+        };
+    }
+
+    pub fn env(self: *Self) []u8 {
+        return self.data[0..self.executable_offset];
+    }
+
+    pub fn executable(self: *Self) []u8 {
+        return self.data[self.executable_offset..];
+    }
+
+    pub fn envIterator(self: *Self) EnvIter {
+        var reader = Io.Reader.fixed(self.env());
+        const num = reader.takeInt(u32, .little) catch 0;
+
+        return EnvIter{
+            .payload = self,
+            .reader = reader,
+            .idx = 0,
+            .num = num,
+        };
     }
 };
 
@@ -127,4 +222,22 @@ pub fn promptPassword(allocator: std.mem.Allocator) ![]u8 {
     }
 
     return password;
+}
+
+fn encodeEnv(writer: *Io.Writer, env: *const process.EnvMap) !void {
+    try writer.writeInt(u32, env.count(), .little);
+
+    var it = env.iterator();
+    while (it.next()) |entry| {
+        if (entry.key_ptr.len > math.maxInt(u16)) {
+            return error.EnvVarTooLarge;
+        }
+        if (entry.value_ptr.len > math.maxInt(u16)) {
+            return error.EnvVarTooLarge;
+        }
+        try writer.writeInt(u16, @truncate(entry.key_ptr.len), .little);
+        try writer.writeAll(entry.key_ptr.*);
+        try writer.writeInt(u16, @truncate(entry.value_ptr.len), .little);
+        try writer.writeAll(entry.value_ptr.*);
+    }
 }

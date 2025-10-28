@@ -10,6 +10,7 @@ var pack_config = struct {
     in_path: []const u8 = undefined,
     out_path: ?[]const u8 = null,
     password: ?[]const u8 = null,
+    env: []const []const u8 = undefined,
 }{};
 
 var arena_allocator = std.heap.ArenaAllocator.init(std.heap.c_allocator);
@@ -65,6 +66,16 @@ fn packCommand(r: *cli.AppRunner) !cli.Command {
                 .value_name = "PASSWORD",
                 .envvar = "ARCANE_PASSWORD",
             },
+            cli.Option{
+                .long_name = "env",
+                .short_alias = 'e',
+                .help =
+                \\Set environment variable.
+                \\Can be specified multiple times.
+                ,
+                .value_name = "VARIABLE=VALUE",
+                .value_ref = r.mkRef(&pack_config.env),
+            },
         }),
         .target = cli.CommandTarget{
             .action = cli.CommandAction{
@@ -84,6 +95,8 @@ fn packCommand(r: *cli.AppRunner) !cli.Command {
 }
 
 fn pack() !void {
+    const env = try parseEnv();
+
     const in_file = try std.fs.openFileAbsolute(pack_config.in_path, .{});
     defer in_file.close();
 
@@ -99,7 +112,7 @@ fn pack() !void {
 
     const password = pack_config.password orelse try getPassword();
 
-    try packer.pack(arena, in_file, out_file, password);
+    try packer.pack(arena, in_file, out_file, &env, password);
 }
 
 fn getPassword() ![]u8 {
@@ -115,4 +128,18 @@ fn getPassword() ![]u8 {
         else => return err,
     };
     return pw;
+}
+
+fn parseEnv() !std.process.EnvMap {
+    var env_map = std.process.EnvMap.init(arena);
+    for (pack_config.env) |env_var| {
+        const idx = std.mem.indexOfScalar(u8, env_var, '=') orelse {
+            std.log.err("Variable '{s}' has no value", .{env_var});
+            return error.MalformedEnvVariable;
+        };
+        const name = env_var[0..idx];
+        const value = env_var[idx + 1 ..];
+        try env_map.put(name, value);
+    }
+    return env_map;
 }

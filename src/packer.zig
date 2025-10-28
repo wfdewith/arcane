@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const argon2 = std.crypto.pwhash.argon2;
 
 const zstd = @cImport(@cInclude("zstd.h"));
 
@@ -12,24 +11,32 @@ pub fn pack(
     allocator: std.mem.Allocator,
     in_file: std.fs.File,
     out_file: std.fs.File,
+    env: *const std.process.EnvMap,
     password: []const u8,
 ) !void {
     var read_buf: [4096]u8 = undefined;
     var reader = in_file.reader(&read_buf);
-    const payload_size = try reader.getSize();
+    const executable_size = try reader.getSize();
 
-    const payload = try reader.interface.readAlloc(allocator, payload_size);
+    const executable = try reader.interface.readAlloc(allocator, executable_size);
 
-    const compressed_payload = try compress(allocator, payload);
+    const compressed_executable = try compress(allocator, executable);
+    defer allocator.free(compressed_executable);
 
-    var full_payload = try common.Payload.init(allocator, compressed_payload.len);
-    const header: *common.Header = full_payload.header();
-    const footer: *common.Footer = full_payload.footer();
-    const encrypted_payload = full_payload.payload();
+    var private_payload = try common.PrivatePayload.init(allocator, env, compressed_executable);
+    defer private_payload.deinit(allocator);
+
+    var payload = try common.Payload.init(allocator, private_payload.data.len);
+    defer payload.deinit(allocator);
+
+    const header = payload.header();
+    const footer = payload.footer();
+    const encrypted_payload = payload.encryptedPayload();
 
     std.crypto.random.bytes(&header.salt);
     std.crypto.random.bytes(&header.nonce);
 
+    header.executable_offset = private_payload.env().len;
     footer.writeOffset(stub.len);
 
     var key: [common.Aead.key_length]u8 = undefined;
@@ -38,7 +45,7 @@ pub fn pack(
     common.Aead.encrypt(
         encrypted_payload,
         &header.tag,
-        compressed_payload,
+        private_payload.data,
         &footer.offset,
         header.nonce,
         key,
@@ -48,7 +55,7 @@ pub fn pack(
     var writer = out_file.writerStreaming(&write_buf);
 
     try writer.interface.writeAll(stub);
-    try writer.interface.writeAll(full_payload.data);
+    try writer.interface.writeAll(payload.data);
     try writer.end();
 }
 
