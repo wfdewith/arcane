@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 pub const Aead = std.crypto.aead.aes_gcm.Aes256Gcm;
 const posix = std.posix;
 
+const buf_size = 4096;
+
 const salt_length = 16;
 const password_length = 1024;
 
@@ -81,10 +83,10 @@ pub fn promptPassword(allocator: std.mem.Allocator) ![]u8 {
         else => return err,
     };
 
-    var read_buf: [4096]u8 = undefined;
+    var read_buf: [buf_size]u8 = undefined;
     var tty_reader = tty.readerStreaming(&read_buf);
     var reader = &tty_reader.interface;
-    var write_buf: [4096]u8 = undefined;
+    var write_buf: [buf_size]u8 = undefined;
     var tty_writer = tty.writerStreaming(&write_buf);
     var writer = &tty_writer.interface;
 
