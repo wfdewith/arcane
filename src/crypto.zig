@@ -35,6 +35,7 @@ pub fn promptPassword(gpa: std.mem.Allocator) ![]u8 {
         error.NoDevice => return error.NotATerminal,
         else => return err,
     };
+    defer tty.close();
 
     var read_buf: [buf_size]u8 = undefined;
     var tty_reader = tty.readerStreaming(&read_buf);
