@@ -99,7 +99,7 @@ fn pack() !void {
     const gpa = pack_config.gpa;
     const env = try parseEnv(gpa);
 
-    const in_file = try std.fs.openFileAbsolute(pack_config.in_path, .{});
+    const in_file = try std.fs.cwd().openFile(pack_config.in_path, .{});
     defer in_file.close();
 
     const out_path = pack_config.out_path orelse blk: {
