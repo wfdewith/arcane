@@ -34,7 +34,7 @@ pub const Footer = extern struct {
     }
 
     pub fn writeOffset(self: *@This(), offset: OffsetType) void {
-        std.mem.writeInt(Footer.OffsetType, &self.offset, offset, .little);
+        std.mem.writeInt(OffsetType, &self.offset, offset, .little);
     }
 };
 
