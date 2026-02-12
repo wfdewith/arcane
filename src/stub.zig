@@ -3,6 +3,7 @@ const posix = std.posix;
 
 const crypto = @import("crypto.zig");
 const format = @import("format.zig");
+const unpacker = @import("unpacker.zig");
 
 const syscalls = struct {
     fn execveat(
@@ -23,10 +24,6 @@ const syscalls = struct {
     }
 };
 
-// based on https://github.com/facebook/zstd/blob/dev/lib/compress/clevels.h
-// Using the power of two of W for the highest compression level
-const zstd_window_size = 1 << 27;
-
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const gpa = arena.allocator();
@@ -34,16 +31,16 @@ pub fn main() !void {
 
     const password = try getPassword(gpa);
 
-    var payload = try extractPayload();
-    var private_payload = try payload.decrypt(gpa, password);
+    const exe = try std.fs.openFileAbsolute("/proc/self/exe", .{});
 
-    const read_buf = try gpa.alloc(u8, zstd_window_size);
-    var compressed_executable_reader = std.Io.Reader.fixed(private_payload.executable());
-    var decompress = std.compress.zstd.Decompress.init(
-        &compressed_executable_reader,
-        read_buf,
-        .{ .window_len = zstd_window_size },
-    );
+    const memfd = try posix.memfd_create("", 0);
+    const memfd_file = std.fs.File{ .handle = memfd };
+
+    var private_payload = try unpacker.unpack(gpa, exe, memfd_file, password);
+
+    if (private_payload.exe_type == .elf) {
+        _ = try posix.fcntl(memfd, posix.F.SETFD, posix.FD_CLOEXEC);
+    }
 
     var env_map = try std.process.getEnvMap(gpa);
     defer env_map.deinit();
@@ -53,24 +50,7 @@ pub fn main() !void {
         try env_map.put(env_var.name, env_var.value);
     }
 
-    const memfd = try createMemfd(&decompress.reader);
-    try exec(gpa, memfd, &env_map);
-}
-
-fn extractPayload() !format.Payload {
-    const exe = try std.fs.openFileAbsolute("/proc/self/exe", .{});
-    const exe_size = (try exe.stat()).size;
-
-    const exe_bytes = try posix.mmap(
-        null,
-        exe_size,
-        posix.PROT.READ,
-        .{ .TYPE = .SHARED },
-        exe.handle,
-        0,
-    );
-
-    return format.Payload.extract(exe_bytes);
+    try exec(gpa, memfd_file, &env_map);
 }
 
 fn getPassword(gpa: std.mem.Allocator) ![]u8 {
@@ -82,24 +62,6 @@ fn getPassword(gpa: std.mem.Allocator) ![]u8 {
         else => return err,
     };
     return pw;
-}
-
-
-const elf_magic = "\x7fELF";
-
-fn createMemfd(reader: *std.Io.Reader) !std.fs.File {
-    const is_elf = std.mem.eql(u8, try reader.peekArray(elf_magic.len), elf_magic);
-
-    const memfd = try std.posix.memfd_create(
-        "",
-        if (is_elf) std.posix.MFD.CLOEXEC else 0,
-    );
-    const memfd_file = std.fs.File{ .handle = memfd };
-
-    var writer = memfd_file.writerStreaming(&.{});
-    _ = try reader.streamRemaining(&writer.interface);
-    try writer.end();
-    return memfd_file;
 }
 
 fn exec(gpa: std.mem.Allocator, file: std.fs.File, env: *const std.process.EnvMap) !noreturn {

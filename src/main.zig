@@ -5,6 +5,7 @@ const cli = @import("cli");
 
 const crypto = @import("crypto.zig");
 const packer = @import("packer.zig");
+const unpacker = @import("unpacker.zig");
 
 var pack_config = struct {
     gpa: std.mem.Allocator = undefined,
@@ -12,6 +13,14 @@ var pack_config = struct {
     out_path: ?[]const u8 = null,
     password: ?[]const u8 = null,
     env: []const []const u8 = undefined,
+}{};
+
+var unpack_config = struct {
+    gpa: std.mem.Allocator = undefined,
+    in_path: []const u8 = undefined,
+    out_path: ?[]const u8 = null,
+    password: ?[]const u8 = null,
+    env_file: ?[]const u8 = null,
 }{};
 
 pub fn main() !void {
@@ -33,6 +42,7 @@ pub fn main() !void {
             .target = cli.CommandTarget{
                 .subcommands = try r.allocCommands(&.{
                     try packCommand(&r, gpa),
+                    try unpackCommand(&r, gpa),
                 }),
             },
         },
@@ -95,6 +105,61 @@ fn packCommand(r: *cli.AppRunner, gpa: std.mem.Allocator) !cli.Command {
     };
 }
 
+fn unpackCommand(r: *cli.AppRunner, gpa: std.mem.Allocator) !cli.Command {
+    unpack_config.gpa = gpa;
+    return cli.Command{
+        .name = "unpack",
+        .description = .{ .one_line = "Unpack a packed executable." },
+        .options = try r.allocOptions(&.{
+            cli.Option{
+                .long_name = "output",
+                .short_alias = 'o',
+                .help =
+                \\Write unpacked executable to PATH.
+                \\Will be set to <INPUT>.unpacked if not set.
+                ,
+                .value_ref = r.mkRef(&unpack_config.out_path),
+                .value_name = "PATH",
+            },
+            cli.Option{
+                .long_name = "password",
+                .short_alias = 'p',
+                .help =
+                \\Set password to decrypt the packed executable.
+                \\Will be prompted if not set.
+                ,
+                .value_ref = r.mkRef(&unpack_config.password),
+                .value_name = "PASSWORD",
+                .envvar = "ARCANE_PASSWORD",
+            },
+            cli.Option{
+                .long_name = "env-file",
+                .short_alias = 'e',
+                .help =
+                \\Write packed environment variables to PATH in KEY=VALUE format.
+                \\If not set, environment variables are discarded.
+                ,
+                .value_ref = r.mkRef(&unpack_config.env_file),
+                .value_name = "PATH",
+            },
+        }),
+        .target = cli.CommandTarget{
+            .action = cli.CommandAction{
+                .positional_args = .{
+                    .required = try r.allocPositionalArgs(&.{
+                        cli.PositionalArg{
+                            .name = "INPUT",
+                            .help = "Path to the packed executable to unpack.",
+                            .value_ref = r.mkRef(&unpack_config.in_path),
+                        },
+                    }),
+                },
+                .exec = unpack,
+            },
+        },
+    };
+}
+
 fn pack() !void {
     const gpa = pack_config.gpa;
     const env = try parseEnv(gpa);
@@ -115,6 +180,52 @@ fn pack() !void {
     const password = pack_config.password orelse try getPassword(gpa);
 
     try packer.pack(gpa, in_file, out_file, &env, password);
+}
+
+fn unpack() !void {
+    const gpa = unpack_config.gpa;
+
+    const in_file = try std.fs.cwd().openFile(unpack_config.in_path, .{});
+    defer in_file.close();
+
+    const out_path = unpack_config.out_path orelse blk: {
+        const p = try std.fmt.allocPrint(gpa, "{s}.unpacked", .{unpack_config.in_path});
+        break :blk std.fs.path.basename(p);
+    };
+    const out_file = try std.fs.cwd().createFile(
+        out_path,
+        .{ .mode = posix.S.IRWXU | posix.S.IRWXG | posix.S.IRWXO },
+    );
+    defer out_file.close();
+
+    const password = unpack_config.password orelse try getPassword(gpa);
+
+    var private_payload = unpacker.unpack(gpa, in_file, out_file, password) catch |err| switch (err) {
+        error.NotAPackedFile => {
+            std.log.err("Input is not a packed executable.", .{});
+            return err;
+        },
+        error.UnsupportedVersion => {
+            std.log.err("Unsupported format version.", .{});
+            return err;
+        },
+        else => return err,
+    };
+
+    if (unpack_config.env_file) |env_path| {
+        const env_file = try std.fs.cwd().createFile(env_path, .{});
+        defer env_file.close();
+        var write_buf: [4096]u8 = undefined;
+        var writer = env_file.writerStreaming(&write_buf);
+        var env_it = private_payload.envIterator();
+        while (env_it.next()) |env_var| {
+            try writer.interface.writeAll(env_var.name);
+            try writer.interface.writeAll("=");
+            try writer.interface.writeAll(env_var.value);
+            try writer.interface.writeAll("\n");
+        }
+        try writer.end();
+    }
 }
 
 fn getPassword(gpa: std.mem.Allocator) ![]u8 {

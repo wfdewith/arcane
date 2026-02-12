@@ -43,10 +43,6 @@ zig build -Doptimize=ReleaseFast
 
 The executable will be located at `zig-out/bin/arcane`.
 
-## Future Work
-
-* An `unpack` command to get the original executable back.
-
 ## License
 
 This project is licensed under the terms of the license in the `COPYING` file.

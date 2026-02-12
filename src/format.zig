@@ -11,9 +11,13 @@ pub const EnvVar = struct {
     value: []const u8,
 };
 
+pub const magic = "ARCN";
+pub const format_version: u8 = 1;
+
 pub const Header = extern struct {
     pub const OffsetType = u64;
 
+    magic: [4]u8,
     salt: [crypto.salt_length]u8,
     nonce: [crypto.Aead.nonce_length]u8,
     tag: [crypto.Aead.tag_length]u8,
@@ -30,6 +34,8 @@ pub const Header = extern struct {
 
 pub const Footer = extern struct {
     pub const OffsetType = u64;
+    magic: [4]u8,
+    version: u8,
     offset: [@sizeOf(OffsetType)]u8,
 
     pub fn readOffset(self: *const @This()) OffsetType {
@@ -51,10 +57,14 @@ pub const Payload = struct {
         gpa.free(self.data);
     }
 
-    pub fn extract(packed_exe: []u8) Payload {
+    pub fn extract(packed_exe: []u8) !Payload {
+        if (packed_exe.len < @sizeOf(Footer)) return error.NotAPackedFile;
         const footer_offset = packed_exe.len - @sizeOf(Footer);
         const f = std.mem.bytesAsValue(Footer, packed_exe[footer_offset..]);
+        if (!std.mem.eql(u8, &f.magic, magic)) return error.NotAPackedFile;
+        if (f.version != format_version) return error.UnsupportedVersion;
         const offset = f.readOffset();
+        if (offset >= packed_exe.len) return error.NotAPackedFile;
         return Payload{ .data = packed_exe[offset..] };
     }
 
@@ -98,11 +108,14 @@ pub const Payload = struct {
     }
 };
 
+pub const ExeType = enum { elf, script };
+
 pub const PrivatePayload = struct {
     const Self = @This();
 
     data: []u8,
     executable_offset: usize,
+    exe_type: ExeType = .elf,
 
     pub const EnvIter = struct {
         payload: *Self,
@@ -159,10 +172,13 @@ pub const PrivatePayload = struct {
         const ftr = payload.footer();
         const encrypted = payload.encryptedPayload();
 
+        hdr.magic = magic.*;
         std.crypto.random.bytes(&hdr.salt);
         std.crypto.random.bytes(&hdr.nonce);
 
         hdr.writeOffset(self.env().len);
+        ftr.magic = magic.*;
+        ftr.version = format_version;
         ftr.writeOffset(stub_len);
 
         var key: [crypto.Aead.key_length]u8 = undefined;
