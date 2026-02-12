@@ -220,9 +220,9 @@ pub fn encodeEnv(writer: *Io.Writer, env_map: *const process.EnvMap) !void {
         if (entry.value_ptr.len > math.maxInt(u16)) {
             return error.EnvVarTooLarge;
         }
-        try writer.writeInt(u16, @truncate(entry.key_ptr.len), .little);
+        try writer.writeInt(u16, @intCast(entry.key_ptr.len), .little);
         try writer.writeAll(entry.key_ptr.*);
-        try writer.writeInt(u16, @truncate(entry.value_ptr.len), .little);
+        try writer.writeInt(u16, @intCast(entry.value_ptr.len), .little);
         try writer.writeAll(entry.value_ptr.*);
     }
 }
