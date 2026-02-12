@@ -73,5 +73,5 @@ fn compress(gpa: std.mem.Allocator, data: []u8) ![]u8 {
         std.log.err("libzstd: {s}", .{zstd.ZSTD_getErrorName(compressed_size)});
         return error.ZstdError;
     }
-    return compressed_data[0..compressed_size];
+    return gpa.realloc(compressed_data, compressed_size);
 }
