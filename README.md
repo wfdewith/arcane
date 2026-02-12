@@ -11,21 +11,47 @@ A simple packer for Linux executables and scripts. Arcane compresses and encrypt
 
 ## Usage
 
+### Pack
+
 To pack an executable:
 
 ```
 arcane pack [OPTIONS] <INPUT>
 ```
 
-### Arguments
+#### Arguments
 
 * `<INPUT>`: Path to the input executable to pack.
 
-### Options
+#### Options
 
 * `-o, --output <PATH>`: Write the packed executable to `<PATH>`. Defaults to `<INPUT>.packed`.
 * `-p, --password <PASSWORD>`: Set the password to encrypt the payload. If not provided, you will be prompted for it. This can also be set with the `ARCANE_PASSWORD` environment variable.
+* `-e, --env <VARIABLE=VALUE>`: Embed an environment variable into the packed executable. The variable will be set when the packed executable runs. Can be specified multiple times.
 * `-h, --help`: Show help output.
+
+### Unpack
+
+To unpack a packed executable:
+
+```
+arcane unpack [OPTIONS] <INPUT>
+```
+
+#### Arguments
+
+* `<INPUT>`: Path to the packed executable to unpack.
+
+#### Options
+
+* `-o, --output <PATH>`: Write the unpacked executable to `<PATH>`. Defaults to `<INPUT>.unpacked`.
+* `-p, --password <PASSWORD>`: Set the password to decrypt the payload. If not provided, you will be prompted for it. This can also be set with the `ARCANE_PASSWORD` environment variable.
+* `-e, --env-file <PATH>`: Write any embedded environment variables to `<PATH>` in `KEY=VALUE` format.
+* `-h, --help`: Show help output.
+
+### Running a Packed Executable
+
+A packed executable can be run directly. It will prompt for the password, then decrypt and execute the original payload entirely in memory. Any embedded environment variables are merged into the process environment.
 
 ## Building
 
@@ -42,6 +68,11 @@ zig build -Doptimize=ReleaseFast
 ```
 
 The executable will be located at `zig-out/bin/arcane`.
+
+To run the end-to-end tests (requires [Bats](https://github.com/bats-core/bats-core)):
+```
+zig build test
+```
 
 ## License
 
