@@ -53,4 +53,10 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
+
+    const test_cmd = b.addSystemCommand(&.{ "bats", "tests/" });
+    test_cmd.setEnvironmentVariable("ARCANE", b.getInstallPath(.bin, "arcane"));
+    test_cmd.step.dependOn(b.getInstallStep());
+    const test_step = b.step("test", "Run end-to-end tests");
+    test_step.dependOn(&test_cmd.step);
 }
