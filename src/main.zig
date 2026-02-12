@@ -120,11 +120,11 @@ fn pack() !void {
 fn getPassword(gpa: std.mem.Allocator) ![]u8 {
     const pw = common.promptPassword(gpa) catch |err| switch (err) {
         error.EmptyPassword => {
-            _ = std.log.err("No password set.", .{});
+            std.log.err("No password set.", .{});
             return error.EmptyPassword;
         },
         error.NotATerminal => {
-            _ = std.log.err("Input is not a TTY, use -p or ARCANE_PASSWORD to set password.", .{});
+            std.log.err("Input is not a TTY, use -p or ARCANE_PASSWORD to set password.", .{});
             return err;
         },
         else => return err,

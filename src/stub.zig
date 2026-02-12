@@ -74,7 +74,7 @@ fn extractPayload() !common.Payload {
 fn getPassword(gpa: std.mem.Allocator) ![]u8 {
     const pw = common.promptPassword(gpa) catch |err| switch (err) {
         error.NotATerminal => {
-            _ = std.log.err("Input is not a TTY.", .{});
+            std.log.err("Input is not a TTY.", .{});
             return err;
         },
         else => return err,
