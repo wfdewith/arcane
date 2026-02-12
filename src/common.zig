@@ -43,16 +43,16 @@ pub const Payload = struct {
 
     data: []u8,
 
-    pub fn init(allocator: std.mem.Allocator, private_size: usize) std.mem.Allocator.Error!Payload {
-        const data = try allocator.alloc(
+    pub fn init(gpa: std.mem.Allocator, private_size: usize) std.mem.Allocator.Error!Payload {
+        const data = try gpa.alloc(
             u8,
             @sizeOf(Header) + private_size + @sizeOf(Footer),
         );
         return Payload{ .data = data };
     }
 
-    pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
-        allocator.free(self.data);
+    pub fn deinit(self: Self, gpa: std.mem.Allocator) void {
+        gpa.free(self.data);
     }
 
     pub fn fromData(data: []u8) Payload {
@@ -105,11 +105,11 @@ pub const PrivatePayload = struct {
     };
 
     pub fn init(
-        allocator: std.mem.Allocator,
+        gpa: std.mem.Allocator,
         env_map: *const process.EnvMap,
         compressed_executable: []const u8,
     ) !PrivatePayload {
-        var writer = Io.Writer.Allocating.init(allocator);
+        var writer = Io.Writer.Allocating.init(gpa);
         try encodeEnv(&writer.writer, env_map);
         const offset = writer.written().len;
         try writer.writer.writeAll(compressed_executable);
@@ -119,8 +119,8 @@ pub const PrivatePayload = struct {
         };
     }
 
-    pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
-        allocator.free(self.data);
+    pub fn deinit(self: Self, gpa: std.mem.Allocator) void {
+        gpa.free(self.data);
     }
 
     pub fn fromData(data: []u8, executable_offset: usize) PrivatePayload {
@@ -152,7 +152,7 @@ pub const PrivatePayload = struct {
     }
 };
 
-pub fn kdf(allocator: std.mem.Allocator, derived_key: []u8, password: []const u8, salt: []const u8) !void {
+pub fn kdf(gpa: std.mem.Allocator, derived_key: []u8, password: []const u8, salt: []const u8) !void {
     const argon2 = std.crypto.pwhash.argon2;
     const params: argon2.Params = if (builtin.mode == .Debug)
         .{
@@ -166,10 +166,10 @@ pub fn kdf(allocator: std.mem.Allocator, derived_key: []u8, password: []const u8
             .m = 2 * 1024 * 1024,
             .t = 1,
         };
-    return argon2.kdf(allocator, derived_key, password, salt, params, .argon2d);
+    return argon2.kdf(gpa, derived_key, password, salt, params, .argon2d);
 }
 
-pub fn promptPassword(allocator: std.mem.Allocator) ![]u8 {
+pub fn promptPassword(gpa: std.mem.Allocator) ![]u8 {
     var tty = std.fs.openFileAbsolute(
         "/dev/tty",
         .{ .mode = .read_write },
@@ -195,7 +195,7 @@ pub fn promptPassword(allocator: std.mem.Allocator) ![]u8 {
     _ = try writer.write("Password: ");
     try writer.flush();
 
-    var pw_buf = try std.ArrayList(u8).initCapacity(allocator, password_length);
+    var pw_buf = try std.ArrayList(u8).initCapacity(gpa, password_length);
     while (true) {
         const ch = reader.takeByte() catch |err| switch (err) {
             error.EndOfStream => break,
@@ -216,7 +216,7 @@ pub fn promptPassword(allocator: std.mem.Allocator) ![]u8 {
         return error.PasswordTooLong;
     }
 
-    const password = try pw_buf.toOwnedSlice(allocator);
+    const password = try pw_buf.toOwnedSlice(gpa);
     if (password.len == 0) {
         return error.EmptyPassword;
     }

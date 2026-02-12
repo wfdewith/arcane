@@ -8,7 +8,7 @@ const common = @import("common.zig");
 const stub linksection(".stub") = @embedFile("stub");
 
 pub fn pack(
-    allocator: std.mem.Allocator,
+    gpa: std.mem.Allocator,
     in_file: std.fs.File,
     out_file: std.fs.File,
     env: *const std.process.EnvMap,
@@ -18,16 +18,16 @@ pub fn pack(
     var reader = in_file.reader(&read_buf);
     const executable_size = try reader.getSize();
 
-    const executable = try reader.interface.readAlloc(allocator, executable_size);
+    const executable = try reader.interface.readAlloc(gpa, executable_size);
 
-    const compressed_executable = try compress(allocator, executable);
-    defer allocator.free(compressed_executable);
+    const compressed_executable = try compress(gpa, executable);
+    defer gpa.free(compressed_executable);
 
-    var private_payload = try common.PrivatePayload.init(allocator, env, compressed_executable);
-    defer private_payload.deinit(allocator);
+    var private_payload = try common.PrivatePayload.init(gpa, env, compressed_executable);
+    defer private_payload.deinit(gpa);
 
-    var payload = try common.Payload.init(allocator, private_payload.data.len);
-    defer payload.deinit(allocator);
+    var payload = try common.Payload.init(gpa, private_payload.data.len);
+    defer payload.deinit(gpa);
 
     const header = payload.header();
     const footer = payload.footer();
@@ -40,7 +40,7 @@ pub fn pack(
     footer.writeOffset(stub.len);
 
     var key: [common.Aead.key_length]u8 = undefined;
-    try common.kdf(allocator, &key, password, &header.salt);
+    try common.kdf(gpa, &key, password, &header.salt);
 
     common.Aead.encrypt(
         encrypted_payload,
@@ -59,9 +59,9 @@ pub fn pack(
     try writer.end();
 }
 
-fn compress(allocator: std.mem.Allocator, data: []u8) ![]u8 {
+fn compress(gpa: std.mem.Allocator, data: []u8) ![]u8 {
     const upper_bound = zstd.ZSTD_compressBound(data.len);
-    const compressed_data = try allocator.alloc(u8, upper_bound);
+    const compressed_data = try gpa.alloc(u8, upper_bound);
     const compressed_size = zstd.ZSTD_compress(
         compressed_data.ptr,
         compressed_data.len,

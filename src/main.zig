@@ -13,13 +13,13 @@ var pack_config = struct {
     env: []const []const u8 = undefined,
 }{};
 
-var arena_allocator = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-const arena = arena_allocator.allocator();
+var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+const gpa = arena.allocator();
 
 pub fn main() !void {
-    defer arena_allocator.deinit();
+    defer arena.deinit();
 
-    var r = try cli.AppRunner.init(arena);
+    var r = try cli.AppRunner.init(gpa);
     const app = cli.App{
         .command = cli.Command{
             .name = "arcane",
@@ -101,7 +101,7 @@ fn pack() !void {
     defer in_file.close();
 
     const out_path = pack_config.out_path orelse blk: {
-        const p = try std.fmt.allocPrint(arena, "{s}.packed", .{pack_config.in_path});
+        const p = try std.fmt.allocPrint(gpa, "{s}.packed", .{pack_config.in_path});
         break :blk std.fs.path.basename(p);
     };
     const out_file = try std.fs.cwd().createFile(
@@ -112,11 +112,11 @@ fn pack() !void {
 
     const password = pack_config.password orelse try getPassword();
 
-    try packer.pack(arena, in_file, out_file, &env, password);
+    try packer.pack(gpa, in_file, out_file, &env, password);
 }
 
 fn getPassword() ![]u8 {
-    const pw = common.promptPassword(arena) catch |err| switch (err) {
+    const pw = common.promptPassword(gpa) catch |err| switch (err) {
         error.EmptyPassword => {
             _ = std.log.err("No password set.", .{});
             return error.EmptyPassword;
@@ -131,7 +131,7 @@ fn getPassword() ![]u8 {
 }
 
 fn parseEnv() !std.process.EnvMap {
-    var env_map = std.process.EnvMap.init(arena);
+    var env_map = std.process.EnvMap.init(gpa);
     for (pack_config.env) |env_var| {
         const idx = std.mem.indexOfScalar(u8, env_var, '=') orelse {
             std.log.err("Variable '{s}' has no value", .{env_var});
