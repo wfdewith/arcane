@@ -1,7 +1,8 @@
 const std = @import("std");
 const posix = std.posix;
 
-const common = @import("common.zig");
+const crypto = @import("crypto.zig");
+const format = @import("format.zig");
 
 const syscalls = struct {
     fn execveat(
@@ -55,7 +56,7 @@ pub fn main() !void {
     try exec(gpa, memfd, &env_map);
 }
 
-fn extractPayload() !common.Payload {
+fn extractPayload() !format.Payload {
     const exe = try std.fs.openFileAbsolute("/proc/self/exe", .{});
     const exe_size = (try exe.stat()).size;
 
@@ -68,11 +69,11 @@ fn extractPayload() !common.Payload {
         0,
     );
 
-    return common.Payload.fromData(exe_bytes);
+    return format.Payload.fromData(exe_bytes);
 }
 
 fn getPassword(gpa: std.mem.Allocator) ![]u8 {
-    const pw = common.promptPassword(gpa) catch |err| switch (err) {
+    const pw = crypto.promptPassword(gpa) catch |err| switch (err) {
         error.NotATerminal => {
             std.log.err("Input is not a TTY.", .{});
             return err;
@@ -84,18 +85,18 @@ fn getPassword(gpa: std.mem.Allocator) ![]u8 {
 
 fn decryptPayload(
     gpa: std.mem.Allocator,
-    payload: *common.Payload,
+    payload: *format.Payload,
     password: []const u8,
-) !common.PrivatePayload {
+) !format.PrivatePayload {
     const header = payload.header();
     const footer = payload.footer();
 
     const decrypted_payload = try gpa.alloc(u8, payload.encryptedPayload().len);
 
-    var key: [common.Aead.key_length]u8 = undefined;
-    try common.kdf(gpa, &key, password, &header.salt);
+    var key: [crypto.Aead.key_length]u8 = undefined;
+    try crypto.kdf(gpa, &key, password, &header.salt);
 
-    try common.Aead.decrypt(
+    try crypto.Aead.decrypt(
         decrypted_payload,
         payload.encryptedPayload(),
         header.tag,
@@ -104,7 +105,7 @@ fn decryptPayload(
         key,
     );
 
-    return common.PrivatePayload.fromData(decrypted_payload, header.readOffset());
+    return format.PrivatePayload.fromData(decrypted_payload, header.readOffset());
 }
 
 fn createMemfd(gpa: std.mem.Allocator, reader: *std.Io.Reader) !std.fs.File {

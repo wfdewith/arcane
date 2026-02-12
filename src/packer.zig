@@ -3,7 +3,8 @@ const builtin = @import("builtin");
 
 const zstd = @cImport(@cInclude("zstd.h"));
 
-const common = @import("common.zig");
+const crypto = @import("crypto.zig");
+const format = @import("format.zig");
 
 const stub linksection(".stub") = @embedFile("stub");
 
@@ -23,10 +24,10 @@ pub fn pack(
     const compressed_executable = try compress(gpa, executable);
     defer gpa.free(compressed_executable);
 
-    var private_payload = try common.PrivatePayload.init(gpa, env, compressed_executable);
+    var private_payload = try format.PrivatePayload.init(gpa, env, compressed_executable);
     defer private_payload.deinit(gpa);
 
-    var payload = try common.Payload.init(gpa, private_payload.data.len);
+    var payload = try format.Payload.init(gpa, private_payload.data.len);
     defer payload.deinit(gpa);
 
     const header = payload.header();
@@ -39,10 +40,10 @@ pub fn pack(
     header.writeOffset(private_payload.env().len);
     footer.writeOffset(stub.len);
 
-    var key: [common.Aead.key_length]u8 = undefined;
-    try common.kdf(gpa, &key, password, &header.salt);
+    var key: [crypto.Aead.key_length]u8 = undefined;
+    try crypto.kdf(gpa, &key, password, &header.salt);
 
-    common.Aead.encrypt(
+    crypto.Aead.encrypt(
         encrypted_payload,
         &header.tag,
         private_payload.data,

@@ -3,7 +3,7 @@ const posix = std.posix;
 
 const cli = @import("cli");
 
-const common = @import("common.zig");
+const crypto = @import("crypto.zig");
 const packer = @import("packer.zig");
 
 var pack_config = struct {
@@ -118,7 +118,7 @@ fn pack() !void {
 }
 
 fn getPassword(gpa: std.mem.Allocator) ![]u8 {
-    const pw = common.promptPassword(gpa) catch |err| switch (err) {
+    const pw = crypto.promptPassword(gpa) catch |err| switch (err) {
         error.EmptyPassword => {
             std.log.err("No password set.", .{});
             return error.EmptyPassword;
