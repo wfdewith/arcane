@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 
 const zstd = @cImport(@cInclude("zstd.h"));
 
-const crypto = @import("crypto.zig");
 const format = @import("format.zig");
 
 const stub linksection(".stub") = @embedFile("stub");
@@ -27,30 +26,8 @@ pub fn pack(
     var private_payload = try format.PrivatePayload.init(gpa, env, compressed_executable);
     defer private_payload.deinit(gpa);
 
-    var payload = try format.Payload.init(gpa, private_payload.data.len);
+    const payload = try private_payload.encrypt(gpa, password, stub.len);
     defer payload.deinit(gpa);
-
-    const header = payload.header();
-    const footer = payload.footer();
-    const encrypted_payload = payload.encryptedPayload();
-
-    std.crypto.random.bytes(&header.salt);
-    std.crypto.random.bytes(&header.nonce);
-
-    header.writeOffset(private_payload.env().len);
-    footer.writeOffset(stub.len);
-
-    var key: [crypto.Aead.key_length]u8 = undefined;
-    try crypto.kdf(gpa, &key, password, &header.salt);
-
-    crypto.Aead.encrypt(
-        encrypted_payload,
-        &header.tag,
-        private_payload.data,
-        &footer.offset,
-        header.nonce,
-        key,
-    );
 
     var write_buf: [4096]u8 = undefined;
     var writer = out_file.writerStreaming(&write_buf);
@@ -59,6 +36,7 @@ pub fn pack(
     try writer.interface.writeAll(payload.data);
     try writer.end();
 }
+
 
 fn compress(gpa: std.mem.Allocator, data: []u8) ![]u8 {
     const upper_bound = zstd.ZSTD_compressBound(data.len);

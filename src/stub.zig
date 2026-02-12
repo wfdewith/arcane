@@ -35,7 +35,7 @@ pub fn main() !void {
     const password = try getPassword(gpa);
 
     var payload = try extractPayload();
-    var private_payload = try decryptPayload(gpa, &payload, password);
+    var private_payload = try payload.decrypt(gpa, password);
 
     var compressed_executable_reader = std.Io.Reader.fixed(private_payload.executable());
     var decompress = std.compress.zstd.Decompress.init(
@@ -69,7 +69,7 @@ fn extractPayload() !format.Payload {
         0,
     );
 
-    return format.Payload.fromData(exe_bytes);
+    return format.Payload.extract(exe_bytes);
 }
 
 fn getPassword(gpa: std.mem.Allocator) ![]u8 {
@@ -83,30 +83,6 @@ fn getPassword(gpa: std.mem.Allocator) ![]u8 {
     return pw;
 }
 
-fn decryptPayload(
-    gpa: std.mem.Allocator,
-    payload: *format.Payload,
-    password: []const u8,
-) !format.PrivatePayload {
-    const header = payload.header();
-    const footer = payload.footer();
-
-    const decrypted_payload = try gpa.alloc(u8, payload.encryptedPayload().len);
-
-    var key: [crypto.Aead.key_length]u8 = undefined;
-    try crypto.kdf(gpa, &key, password, &header.salt);
-
-    try crypto.Aead.decrypt(
-        decrypted_payload,
-        payload.encryptedPayload(),
-        header.tag,
-        &footer.offset,
-        header.nonce,
-        key,
-    );
-
-    return format.PrivatePayload.fromData(decrypted_payload, header.readOffset());
-}
 
 fn createMemfd(gpa: std.mem.Allocator, reader: *std.Io.Reader) !std.fs.File {
     const memfd = try std.posix.memfd_create("", std.posix.MFD.CLOEXEC);

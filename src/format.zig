@@ -43,26 +43,19 @@ pub const Footer = extern struct {
 
 pub const Payload = struct {
     const Self = @This();
+    pub const size_overhead = @sizeOf(Header) + @sizeOf(Footer);
 
     data: []u8,
-
-    pub fn init(gpa: std.mem.Allocator, private_size: usize) std.mem.Allocator.Error!Payload {
-        const data = try gpa.alloc(
-            u8,
-            @sizeOf(Header) + private_size + @sizeOf(Footer),
-        );
-        return Payload{ .data = data };
-    }
 
     pub fn deinit(self: Self, gpa: std.mem.Allocator) void {
         gpa.free(self.data);
     }
 
-    pub fn fromData(data: []u8) Payload {
-        const footer_offset = data.len - @sizeOf(Footer);
-        const f = std.mem.bytesAsValue(Footer, data[footer_offset..]);
+    pub fn extract(packed_exe: []u8) Payload {
+        const footer_offset = packed_exe.len - @sizeOf(Footer);
+        const f = std.mem.bytesAsValue(Footer, packed_exe[footer_offset..]);
         const offset = f.readOffset();
-        return Payload{ .data = data[offset..] };
+        return Payload{ .data = packed_exe[offset..] };
     }
 
     pub fn header(self: *Self) *align(1) Header {
@@ -78,6 +71,30 @@ pub const Payload = struct {
         const header_offset = @sizeOf(Header);
         const footer_offset = self.data.len - @sizeOf(Footer);
         return self.data[header_offset..footer_offset];
+    }
+
+    pub fn decrypt(self: *Self, gpa: std.mem.Allocator, password: []const u8) !PrivatePayload {
+        const hdr = self.header();
+        const ftr = self.footer();
+
+        const decrypted = try gpa.alloc(u8, self.encryptedPayload().len);
+
+        var key: [crypto.Aead.key_length]u8 = undefined;
+        try crypto.kdf(gpa, &key, password, &hdr.salt);
+
+        try crypto.Aead.decrypt(
+            decrypted,
+            self.encryptedPayload(),
+            hdr.tag,
+            &ftr.offset,
+            hdr.nonce,
+            key,
+        );
+
+        return PrivatePayload{
+            .data = decrypted,
+            .executable_offset = hdr.readOffset(),
+        };
     }
 };
 
@@ -126,20 +143,41 @@ pub const PrivatePayload = struct {
         gpa.free(self.data);
     }
 
-    pub fn fromData(data: []u8, executable_offset: usize) PrivatePayload {
-        std.debug.assert(executable_offset <= data.len);
-        return PrivatePayload{
-            .data = data,
-            .executable_offset = executable_offset,
-        };
-    }
-
     pub fn env(self: *Self) []u8 {
         return self.data[0..self.executable_offset];
     }
 
     pub fn executable(self: *Self) []u8 {
         return self.data[self.executable_offset..];
+    }
+
+    pub fn encrypt(self: *Self, gpa: std.mem.Allocator, password: []const u8, stub_len: usize) !Payload {
+        const payload_data = try gpa.alloc(u8, Payload.size_overhead + self.data.len);
+        var payload = Payload{ .data = payload_data };
+
+        const hdr = payload.header();
+        const ftr = payload.footer();
+        const encrypted = payload.encryptedPayload();
+
+        std.crypto.random.bytes(&hdr.salt);
+        std.crypto.random.bytes(&hdr.nonce);
+
+        hdr.writeOffset(self.env().len);
+        ftr.writeOffset(stub_len);
+
+        var key: [crypto.Aead.key_length]u8 = undefined;
+        try crypto.kdf(gpa, &key, password, &hdr.salt);
+
+        crypto.Aead.encrypt(
+            encrypted,
+            &hdr.tag,
+            self.data,
+            &ftr.offset,
+            hdr.nonce,
+            key,
+        );
+
+        return payload;
     }
 
     pub fn envIterator(self: *Self) EnvIter {
