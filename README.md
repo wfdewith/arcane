@@ -1,12 +1,12 @@
 # Arcane
 
-A simple packer for Linux ELF executables. Arcane compresses and encrypts an executable into a self-extracting binary.
+A simple packer for Linux executables and scripts. Arcane compresses and encrypts an executable or `#!` script into a self-extracting binary.
 
 ## Features
 
 * **Compression**: Payloads are compressed using [Zstandard](https://facebook.github.io/zstd/) (zstd) for a smaller footprint.
 * **Encryption**: Payloads are encrypted using AES-256-GCM with a key derived from a user-provided password using Argon2.
-* **In-Memory Execution**: The packed executable, when run, decrypts and decompresses its payload into an in-memory file (`memfd`) and executes it directly. The original executable never touches the disk.
+* **In-Memory Execution**: The packed executable, when run, decrypts and decompresses its payload into an in-memory file (`memfd`) and executes it directly. The original executable never touches the disk. Both ELF binaries and `#!` scripts are supported.
 * **Self-Contained**: The resulting packed binary is a single, static executable with no external dependencies.
 
 ## Usage
@@ -45,7 +45,6 @@ The executable will be located at `zig-out/bin/arcane`.
 
 ## Future Work
 
-* Supporting packing scripts (`#!/path/to/interpreter`).
 * An `unpack` command to get the original executable back.
 
 ## License

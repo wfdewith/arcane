@@ -37,10 +37,11 @@ pub fn main() !void {
     var payload = try extractPayload();
     var private_payload = try payload.decrypt(gpa, password);
 
+    const read_buf = try gpa.alloc(u8, zstd_window_size);
     var compressed_executable_reader = std.Io.Reader.fixed(private_payload.executable());
     var decompress = std.compress.zstd.Decompress.init(
         &compressed_executable_reader,
-        &.{},
+        read_buf,
         .{ .window_len = zstd_window_size },
     );
 
@@ -52,7 +53,7 @@ pub fn main() !void {
         try env_map.put(env_var.name, env_var.value);
     }
 
-    const memfd = try createMemfd(gpa, &decompress.reader);
+    const memfd = try createMemfd(&decompress.reader);
     try exec(gpa, memfd, &env_map);
 }
 
@@ -84,12 +85,18 @@ fn getPassword(gpa: std.mem.Allocator) ![]u8 {
 }
 
 
-fn createMemfd(gpa: std.mem.Allocator, reader: *std.Io.Reader) !std.fs.File {
-    const memfd = try std.posix.memfd_create("", std.posix.MFD.CLOEXEC);
+const elf_magic = "\x7fELF";
+
+fn createMemfd(reader: *std.Io.Reader) !std.fs.File {
+    const is_elf = std.mem.eql(u8, try reader.peekArray(elf_magic.len), elf_magic);
+
+    const memfd = try std.posix.memfd_create(
+        "",
+        if (is_elf) std.posix.MFD.CLOEXEC else 0,
+    );
     const memfd_file = std.fs.File{ .handle = memfd };
 
-    const write_buf = try gpa.alloc(u8, zstd_window_size);
-    var writer = memfd_file.writerStreaming(write_buf);
+    var writer = memfd_file.writerStreaming(&.{});
     _ = try reader.streamRemaining(&writer.interface);
     try writer.end();
     return memfd_file;
