@@ -90,6 +90,7 @@ pub const Payload = struct {
         const decrypted = try gpa.alloc(u8, self.encryptedPayload().len);
 
         var key: [crypto.Aead.key_length]u8 = undefined;
+        defer std.crypto.secureZero(u8, &key);
         try crypto.kdf(gpa, &key, password, &hdr.salt);
 
         try crypto.Aead.decrypt(
@@ -182,6 +183,7 @@ pub const PrivatePayload = struct {
         ftr.writeOffset(stub_len);
 
         var key: [crypto.Aead.key_length]u8 = undefined;
+        defer std.crypto.secureZero(u8, &key);
         try crypto.kdf(gpa, &key, password, &hdr.salt);
 
         crypto.Aead.encrypt(

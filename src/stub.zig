@@ -32,6 +32,7 @@ pub fn main() !void {
     defer arena.deinit();
 
     const password = try getPassword(gpa);
+    defer std.crypto.secureZero(u8, password);
 
     const exe = try std.fs.openFileAbsolute("/proc/self/exe", .{});
 

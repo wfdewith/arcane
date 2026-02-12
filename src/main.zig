@@ -13,7 +13,7 @@ var pack_config = struct {
     gpa: std.mem.Allocator = undefined,
     in_path: []const u8 = undefined,
     out_path: ?[]const u8 = null,
-    password: ?[]const u8 = null,
+    password: ?[]u8 = null,
     env: []const []const u8 = undefined,
 }{};
 
@@ -21,7 +21,7 @@ var unpack_config = struct {
     gpa: std.mem.Allocator = undefined,
     in_path: []const u8 = undefined,
     out_path: ?[]const u8 = null,
-    password: ?[]const u8 = null,
+    password: ?[]u8 = null,
     env_file: ?[]const u8 = null,
 }{};
 
@@ -180,6 +180,7 @@ fn pack() !void {
     defer out_file.close();
 
     const password = pack_config.password orelse try getPassword(gpa);
+    defer std.crypto.secureZero(u8, password);
 
     var read_buf: [buf_size]u8 = undefined;
     var reader = in_file.reader(&read_buf);
@@ -207,6 +208,7 @@ fn unpack() !void {
     defer out_file.close();
 
     const password = unpack_config.password orelse try getPassword(gpa);
+    defer std.crypto.secureZero(u8, password);
 
     var read_buf: [buf_size]u8 = undefined;
     var reader = in_file.reader(&read_buf);
