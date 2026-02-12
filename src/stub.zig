@@ -44,12 +44,18 @@ pub fn main() !void {
     var write_buf: [buf_size]u8 = undefined;
     var writer = memfd_file.writerStreaming(&write_buf);
 
-    var private_payload = try unpacker.unpack(
+    var private_payload = unpacker.unpack(
         gpa,
         &reader.interface,
         &writer.interface,
         password,
-    );
+    ) catch |err| switch (err) {
+        error.AuthenticationFailed => {
+            std.log.err("Wrong password or corrupted file.", .{});
+            return err;
+        },
+        else => return err,
+    };
     try writer.end();
 
     if (private_payload.exe_type == .elf) {
@@ -71,6 +77,10 @@ fn getPassword(gpa: std.mem.Allocator) ![]u8 {
     const pw = crypto.promptPassword(gpa) catch |err| switch (err) {
         error.NotATerminal => {
             std.log.err("Input is not a TTY.", .{});
+            return err;
+        },
+        error.PasswordTooLong => {
+            std.log.err("Password is too long.", .{});
             return err;
         },
         else => return err,

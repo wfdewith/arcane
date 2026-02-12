@@ -259,6 +259,10 @@ fn getPassword(gpa: std.mem.Allocator) ![]u8 {
             std.log.err("Input is not a TTY, use -p or ARCANE_PASSWORD to set password.", .{});
             return err;
         },
+        error.PasswordTooLong => {
+            std.log.err("Password is too long.", .{});
+            return err;
+        },
         else => return err,
     };
     return pw;
