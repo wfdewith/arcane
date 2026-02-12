@@ -24,6 +24,8 @@ const syscalls = struct {
     }
 };
 
+const buf_size = 1024;
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const gpa = arena.allocator();
@@ -36,7 +38,18 @@ pub fn main() !void {
     const memfd = try posix.memfd_create("", 0);
     const memfd_file = std.fs.File{ .handle = memfd };
 
-    var private_payload = try unpacker.unpack(gpa, exe, memfd_file, password);
+    var read_buf: [buf_size]u8 = undefined;
+    var reader = exe.reader(&read_buf);
+    var write_buf: [buf_size]u8 = undefined;
+    var writer = memfd_file.writerStreaming(&write_buf);
+
+    var private_payload = try unpacker.unpack(
+        gpa,
+        &reader.interface,
+        &writer.interface,
+        password,
+    );
+    try writer.end();
 
     if (private_payload.exe_type == .elf) {
         _ = try posix.fcntl(memfd, posix.F.SETFD, posix.FD_CLOEXEC);

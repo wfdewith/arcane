@@ -7,7 +7,7 @@ pub const Aead = std.crypto.aead.aes_gcm.Aes256Gcm;
 
 pub const salt_length = 16;
 
-const buf_size = 4096;
+const buf_size = 1024;
 const password_length = 1024;
 
 pub fn kdf(gpa: std.mem.Allocator, derived_key: []u8, password: []const u8, salt: []const u8) !void {

@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const Io = std.Io;
+
 const zstd = @cImport(@cInclude("zstd.h"));
 
 const format = @import("format.zig");
@@ -9,16 +11,12 @@ const stub linksection(".stub") = @embedFile("stub");
 
 pub fn pack(
     gpa: std.mem.Allocator,
-    in_file: std.fs.File,
-    out_file: std.fs.File,
+    reader: *Io.Reader,
+    writer: *Io.Writer,
     env: *const std.process.EnvMap,
     password: []const u8,
 ) !void {
-    var read_buf: [4096]u8 = undefined;
-    var reader = in_file.reader(&read_buf);
-    const executable_size = try reader.getSize();
-
-    const executable = try reader.interface.readAlloc(gpa, executable_size);
+    const executable = try reader.allocRemaining(gpa, .unlimited);
 
     const compressed_executable = try compress(gpa, executable);
     defer gpa.free(compressed_executable);
@@ -29,12 +27,8 @@ pub fn pack(
     const payload = try private_payload.encrypt(gpa, password, stub.len);
     defer payload.deinit(gpa);
 
-    var write_buf: [4096]u8 = undefined;
-    var writer = out_file.writerStreaming(&write_buf);
-
-    try writer.interface.writeAll(stub);
-    try writer.interface.writeAll(payload.data);
-    try writer.end();
+    try writer.writeAll(stub);
+    try writer.writeAll(payload.data);
 }
 
 

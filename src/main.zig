@@ -7,6 +7,8 @@ const crypto = @import("crypto.zig");
 const packer = @import("packer.zig");
 const unpacker = @import("unpacker.zig");
 
+const buf_size = 1024;
+
 var pack_config = struct {
     gpa: std.mem.Allocator = undefined,
     in_path: []const u8 = undefined,
@@ -179,7 +181,13 @@ fn pack() !void {
 
     const password = pack_config.password orelse try getPassword(gpa);
 
-    try packer.pack(gpa, in_file, out_file, &env, password);
+    var read_buf: [buf_size]u8 = undefined;
+    var reader = in_file.reader(&read_buf);
+    var write_buf: [buf_size]u8 = undefined;
+    var writer = out_file.writerStreaming(&write_buf);
+
+    try packer.pack(gpa, &reader.interface, &writer.interface, &env, password);
+    try writer.end();
 }
 
 fn unpack() !void {
@@ -200,7 +208,17 @@ fn unpack() !void {
 
     const password = unpack_config.password orelse try getPassword(gpa);
 
-    var private_payload = unpacker.unpack(gpa, in_file, out_file, password) catch |err| switch (err) {
+    var read_buf: [buf_size]u8 = undefined;
+    var reader = in_file.reader(&read_buf);
+    var write_buf: [buf_size]u8 = undefined;
+    var writer = out_file.writerStreaming(&write_buf);
+
+    var private_payload = unpacker.unpack(
+        gpa,
+        &reader.interface,
+        &writer.interface,
+        password,
+    ) catch |err| switch (err) {
         error.NotAPackedFile => {
             std.log.err("Input is not a packed executable.", .{});
             return err;
@@ -211,20 +229,21 @@ fn unpack() !void {
         },
         else => return err,
     };
+    try writer.end();
 
     if (unpack_config.env_file) |env_path| {
         const env_file = try std.fs.cwd().createFile(env_path, .{});
         defer env_file.close();
-        var write_buf: [4096]u8 = undefined;
-        var writer = env_file.writerStreaming(&write_buf);
+        var env_write_buf: [buf_size]u8 = undefined;
+        var env_writer = env_file.writerStreaming(&env_write_buf);
         var env_it = private_payload.envIterator();
         while (env_it.next()) |env_var| {
-            try writer.interface.writeAll(env_var.name);
-            try writer.interface.writeAll("=");
-            try writer.interface.writeAll(env_var.value);
-            try writer.interface.writeAll("\n");
+            try env_writer.interface.writeAll(env_var.name);
+            try env_writer.interface.writeAll("=");
+            try env_writer.interface.writeAll(env_var.value);
+            try env_writer.interface.writeAll("\n");
         }
-        try writer.end();
+        try env_writer.end();
     }
 }
 

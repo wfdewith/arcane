@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 
 const crypto = @import("crypto.zig");
 const format = @import("format.zig");
@@ -11,19 +12,16 @@ const elf_magic = "\x7fELF";
 
 pub fn unpack(
     gpa: std.mem.Allocator,
-    in_file: std.fs.File,
-    out_file: std.fs.File,
+    reader: *Io.Reader,
+    writer: *Io.Writer,
     password: []const u8,
 ) !format.PrivatePayload {
-    var read_buf: [4096]u8 = undefined;
-    var reader = in_file.reader(&read_buf);
-    const file_size = try reader.getSize();
-    const file_data = try reader.interface.readAlloc(gpa, file_size);
+    const file_data = try reader.allocRemaining(gpa, .unlimited);
 
     var payload = try format.Payload.extract(file_data);
     var private_payload = try payload.decrypt(gpa, password);
 
-    var compressed_reader = std.Io.Reader.fixed(private_payload.executable());
+    var compressed_reader = Io.Reader.fixed(private_payload.executable());
     const decompress_buf = try gpa.alloc(u8, zstd_window_size);
     var decompress = std.compress.zstd.Decompress.init(
         &compressed_reader,
@@ -38,10 +36,7 @@ pub fn unpack(
     );
     private_payload.exe_type = if (is_elf) .elf else .script;
 
-    var write_buf: [4096]u8 = undefined;
-    var writer = out_file.writerStreaming(&write_buf);
-    _ = try decompress.reader.streamRemaining(&writer.interface);
-    try writer.end();
+    _ = try decompress.reader.streamRemaining(writer);
 
     return private_payload;
 }
