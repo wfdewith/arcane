@@ -7,16 +7,16 @@ const common = @import("common.zig");
 const packer = @import("packer.zig");
 
 var pack_config = struct {
+    gpa: std.mem.Allocator = undefined,
     in_path: []const u8 = undefined,
     out_path: ?[]const u8 = null,
     password: ?[]const u8 = null,
     env: []const []const u8 = undefined,
 }{};
 
-var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-const gpa = arena.allocator();
-
 pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+    const gpa = arena.allocator();
     defer arena.deinit();
 
     var r = try cli.AppRunner.init(gpa);
@@ -32,7 +32,7 @@ pub fn main() !void {
             },
             .target = cli.CommandTarget{
                 .subcommands = try r.allocCommands(&.{
-                    try packCommand(&r),
+                    try packCommand(&r, gpa),
                 }),
             },
         },
@@ -40,7 +40,8 @@ pub fn main() !void {
     try r.run(&app);
 }
 
-fn packCommand(r: *cli.AppRunner) !cli.Command {
+fn packCommand(r: *cli.AppRunner, gpa: std.mem.Allocator) !cli.Command {
+    pack_config.gpa = gpa;
     return cli.Command{
         .name = "pack",
         .description = .{ .one_line = "Pack an executable." },
@@ -95,7 +96,8 @@ fn packCommand(r: *cli.AppRunner) !cli.Command {
 }
 
 fn pack() !void {
-    const env = try parseEnv();
+    const gpa = pack_config.gpa;
+    const env = try parseEnv(gpa);
 
     const in_file = try std.fs.openFileAbsolute(pack_config.in_path, .{});
     defer in_file.close();
@@ -110,12 +112,12 @@ fn pack() !void {
     );
     defer out_file.close();
 
-    const password = pack_config.password orelse try getPassword();
+    const password = pack_config.password orelse try getPassword(gpa);
 
     try packer.pack(gpa, in_file, out_file, &env, password);
 }
 
-fn getPassword() ![]u8 {
+fn getPassword(gpa: std.mem.Allocator) ![]u8 {
     const pw = common.promptPassword(gpa) catch |err| switch (err) {
         error.EmptyPassword => {
             _ = std.log.err("No password set.", .{});
@@ -130,7 +132,7 @@ fn getPassword() ![]u8 {
     return pw;
 }
 
-fn parseEnv() !std.process.EnvMap {
+fn parseEnv(gpa: std.mem.Allocator) !std.process.EnvMap {
     var env_map = std.process.EnvMap.init(gpa);
     for (pack_config.env) |env_var| {
         const idx = std.mem.indexOfScalar(u8, env_var, '=') orelse {
