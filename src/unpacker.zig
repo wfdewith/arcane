@@ -23,6 +23,7 @@ pub fn unpack(
 
     var compressed_reader = Io.Reader.fixed(private_payload.executable());
     const decompress_buf = try gpa.alloc(u8, zstd_window_size);
+    defer gpa.free(decompress_buf);
     var decompress = std.compress.zstd.Decompress.init(
         &compressed_reader,
         decompress_buf,
