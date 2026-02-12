@@ -14,6 +14,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/stub.zig"),
         .target = target,
         .optimize = stub_optimize,
+        .strip = optimize != .Debug,
+        .single_threaded = true,
     });
 
     const stub_exe = b.addExecutable(.{
