@@ -32,7 +32,7 @@ pub fn promptPassword(gpa: std.mem.Allocator) ![]u8 {
         "/dev/tty",
         .{ .mode = .read_write },
     ) catch |err| switch (err) {
-        error.FileNotFound => return error.NotATerminal,
+        error.NoDevice => return error.NotATerminal,
         else => return err,
     };
 
