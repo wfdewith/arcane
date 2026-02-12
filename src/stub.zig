@@ -104,7 +104,7 @@ fn decryptPayload(
         key,
     );
 
-    return common.PrivatePayload.fromData(decrypted_payload, header.executable_offset);
+    return common.PrivatePayload.fromData(decrypted_payload, header.readOffset());
 }
 
 fn createMemfd(gpa: std.mem.Allocator, reader: *std.Io.Reader) !std.fs.File {

@@ -36,7 +36,7 @@ pub fn pack(
     std.crypto.random.bytes(&header.salt);
     std.crypto.random.bytes(&header.nonce);
 
-    header.executable_offset = private_payload.env().len;
+    header.writeOffset(private_payload.env().len);
     footer.writeOffset(stub.len);
 
     var key: [common.Aead.key_length]u8 = undefined;

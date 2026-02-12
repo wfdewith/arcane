@@ -19,10 +19,20 @@ pub const EnvVar = struct {
 };
 
 pub const Header = extern struct {
+    pub const OffsetType = u64;
+
     salt: [salt_length]u8,
     nonce: [Aead.nonce_length]u8,
     tag: [Aead.tag_length]u8,
-    executable_offset: usize,
+    executable_offset: [@sizeOf(OffsetType)]u8,
+
+    pub fn readOffset(self: *const @This()) OffsetType {
+        return std.mem.readInt(OffsetType, &self.executable_offset, .little);
+    }
+
+    pub fn writeOffset(self: *@This(), offset: OffsetType) void {
+        std.mem.writeInt(OffsetType, &self.executable_offset, offset, .little);
+    }
 };
 
 pub const Footer = extern struct {
