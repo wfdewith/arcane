@@ -90,6 +90,54 @@ SCRIPT
     [[ "$output" == *"Unsupported format version"* ]]
 }
 
+@test "custom compression level round-trips" {
+    "$ARCANE" pack -p secret -l 5 -o packed /usr/bin/ls
+    "$ARCANE" unpack -p secret -o unpacked packed
+    cmp /usr/bin/ls unpacked
+}
+
+@test "custom kdf params round-trip" {
+    "$ARCANE" pack -p secret --kdf-memory 65536 --kdf-time 2 --kdf-parallelism 4 -o packed /usr/bin/ls
+    "$ARCANE" unpack -p secret -o unpacked packed
+    cmp /usr/bin/ls unpacked
+}
+
+@test "run a packed executable with custom kdf params" {
+    "$ARCANE" pack -p secret --kdf-memory 65536 --kdf-time 2 --kdf-parallelism 4 -o packed /usr/bin/echo
+    result=$(send_password secret ./packed hello world)
+    [[ "$result" == *"hello world"* ]]
+}
+
+@test "reject compression level 0" {
+    run "$ARCANE" pack -p secret -l 0 -o packed /usr/bin/ls
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Compression level must be between 1 and 22"* ]]
+}
+
+@test "reject compression level 23" {
+    run "$ARCANE" pack -p secret -l 23 -o packed /usr/bin/ls
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Compression level must be between 1 and 22"* ]]
+}
+
+@test "reject kdf time 0" {
+    run "$ARCANE" pack -p secret --kdf-time 0 -o packed /usr/bin/ls
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"KDF time must be greater than 0"* ]]
+}
+
+@test "reject kdf parallelism 0" {
+    run "$ARCANE" pack -p secret --kdf-parallelism 0 -o packed /usr/bin/ls
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"KDF parallelism must be greater than 0"* ]]
+}
+
+@test "reject kdf memory less than 8 times parallelism" {
+    run "$ARCANE" pack -p secret --kdf-memory 1 --kdf-parallelism 4 -o packed /usr/bin/ls
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"KDF memory must be at least 8 * parallelism"* ]]
+}
+
 @test "reject env var name exceeding u16 max length" {
     long_name=$(printf '%0.sA' $(seq 1 65536))
     run "$ARCANE" pack -p secret -e "${long_name}=value" -o packed /usr/bin/ls

@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 
 const posix = std.posix;
 
@@ -10,21 +9,20 @@ pub const salt_length = 16;
 const buf_size = 1024;
 const password_length = 1024;
 
-pub fn kdf(gpa: std.mem.Allocator, derived_key: []u8, password: []const u8, salt: []const u8) !void {
+pub const KdfParams = struct {
+    m: u32, // memory in KB
+    t: u32, // time cost (iterations)
+    p: u24, // parallelism
+};
+
+pub fn kdf(gpa: std.mem.Allocator, derived_key: []u8, password: []const u8, salt: []const u8, params: KdfParams) !void {
     const argon2 = std.crypto.pwhash.argon2;
-    const params: argon2.Params = if (builtin.mode == .Debug)
-        .{
-            .p = 1,
-            .m = 2 * 1024,
-            .t = 1,
-        }
-    else
-        .{
-            .p = 8,
-            .m = 2 * 1024 * 1024,
-            .t = 1,
-        };
-    return argon2.kdf(gpa, derived_key, password, salt, params, .argon2d);
+    const argon2_params: argon2.Params = .{
+        .m = params.m,
+        .t = params.t,
+        .p = params.p,
+    };
+    return argon2.kdf(gpa, derived_key, password, salt, argon2_params, .argon2d);
 }
 
 pub fn promptPassword(gpa: std.mem.Allocator) ![]u8 {

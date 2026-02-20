@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const posix = std.posix;
 
 const cli = @import("cli");
@@ -15,6 +16,10 @@ var pack_config = struct {
     out_path: ?[]const u8 = null,
     password: ?[]u8 = null,
     env: []const []const u8 = undefined,
+    compression_level: u8 = if (builtin.mode == .Debug) 1 else 22,
+    argon2_memory: u32 = if (builtin.mode == .Debug) 2 * 1024 else 2 * 1024 * 1024,
+    argon2_time: u32 = 1,
+    argon2_parallelism: u24 = if (builtin.mode == .Debug) 1 else 8,
 }{};
 
 var unpack_config = struct {
@@ -88,6 +93,31 @@ fn packCommand(r: *cli.AppRunner, gpa: std.mem.Allocator) !cli.Command {
                 ,
                 .value_name = "VARIABLE=VALUE",
                 .value_ref = r.mkRef(&pack_config.env),
+            },
+            cli.Option{
+                .long_name = "compression-level",
+                .short_alias = 'l',
+                .help = "Zstd compression level (1–22).",
+                .value_ref = r.mkRef(&pack_config.compression_level),
+                .value_name = "LEVEL",
+            },
+            cli.Option{
+                .long_name = "kdf-memory",
+                .help = "Argon2 memory cost in KB.",
+                .value_ref = r.mkRef(&pack_config.argon2_memory),
+                .value_name = "KB",
+            },
+            cli.Option{
+                .long_name = "kdf-time",
+                .help = "Argon2 time cost (iterations).",
+                .value_ref = r.mkRef(&pack_config.argon2_time),
+                .value_name = "ITER",
+            },
+            cli.Option{
+                .long_name = "kdf-parallelism",
+                .help = "Argon2 parallelism.",
+                .value_ref = r.mkRef(&pack_config.argon2_parallelism),
+                .value_name = "N",
             },
         }),
         .target = cli.CommandTarget{
@@ -187,7 +217,31 @@ fn pack() !void {
     var write_buf: [buf_size]u8 = undefined;
     var writer = out_file.writerStreaming(&write_buf);
 
-    try packer.pack(gpa, &reader.interface, &writer.interface, &env, password);
+    const kdf_params = crypto.KdfParams{
+        .m = pack_config.argon2_memory,
+        .t = pack_config.argon2_time,
+        .p = pack_config.argon2_parallelism,
+    };
+    const compression_level = pack_config.compression_level;
+
+    if (compression_level < 1 or compression_level > 22) {
+        std.log.err("Compression level must be between 1 and 22.", .{});
+        return error.InvalidCompressionLevel;
+    }
+    if (kdf_params.p == 0) {
+        std.log.err("KDF parallelism must be greater than 0.", .{});
+        return error.InvalidKdfParams;
+    }
+    if (kdf_params.t == 0) {
+        std.log.err("KDF time must be greater than 0.", .{});
+        return error.InvalidKdfParams;
+    }
+    if (kdf_params.m < 8 * kdf_params.p) {
+        std.log.err("KDF memory must be at least 8 * parallelism ({d} KB).", .{8 * kdf_params.p});
+        return error.InvalidKdfParams;
+    }
+
+    try packer.pack(gpa, &reader.interface, &writer.interface, &env, password, compression_level, kdf_params);
     try writer.end();
 }
 

@@ -12,7 +12,7 @@ pub const EnvVar = struct {
 };
 
 pub const magic = "ARCN";
-pub const format_version: u8 = 1;
+pub const format_version: u8 = 2;
 
 pub const Header = extern struct {
     pub const OffsetType = u64;
@@ -22,6 +22,9 @@ pub const Header = extern struct {
     nonce: [crypto.Aead.nonce_length]u8,
     tag: [crypto.Aead.tag_length]u8,
     executable_offset: [@sizeOf(OffsetType)]u8,
+    kdf_m: [@sizeOf(u32)]u8,
+    kdf_t: [@sizeOf(u32)]u8,
+    kdf_p: [3]u8, // u24: 3 bytes, not @sizeOf(u24) which is 4
 
     pub fn readOffset(self: *const @This()) OffsetType {
         return std.mem.readInt(OffsetType, &self.executable_offset, .little);
@@ -29,6 +32,20 @@ pub const Header = extern struct {
 
     pub fn writeOffset(self: *@This(), offset: OffsetType) void {
         std.mem.writeInt(OffsetType, &self.executable_offset, offset, .little);
+    }
+
+    pub fn readKdfParams(self: *const @This()) crypto.KdfParams {
+        return .{
+            .m = std.mem.readInt(u32, &self.kdf_m, .little),
+            .t = std.mem.readInt(u32, &self.kdf_t, .little),
+            .p = std.mem.readInt(u24, &self.kdf_p, .little),
+        };
+    }
+
+    pub fn writeKdfParams(self: *@This(), params: crypto.KdfParams) void {
+        std.mem.writeInt(u32, &self.kdf_m, params.m, .little);
+        std.mem.writeInt(u32, &self.kdf_t, params.t, .little);
+        std.mem.writeInt(u24, &self.kdf_p, params.p, .little);
     }
 };
 
@@ -91,7 +108,7 @@ pub const Payload = struct {
 
         var key: [crypto.Aead.key_length]u8 = undefined;
         defer std.crypto.secureZero(u8, &key);
-        try crypto.kdf(gpa, &key, password, &hdr.salt);
+        try crypto.kdf(gpa, &key, password, &hdr.salt, hdr.readKdfParams());
 
         try crypto.Aead.decrypt(
             decrypted,
@@ -165,7 +182,7 @@ pub const PrivatePayload = struct {
         return self.data[self.executable_offset..];
     }
 
-    pub fn encrypt(self: *Self, gpa: std.mem.Allocator, password: []const u8, stub_len: usize) !Payload {
+    pub fn encrypt(self: *Self, gpa: std.mem.Allocator, password: []const u8, stub_len: usize, kdf_params: crypto.KdfParams) !Payload {
         const payload_data = try gpa.alloc(u8, Payload.size_overhead + self.data.len);
         var payload = Payload{ .data = payload_data };
 
@@ -178,13 +195,14 @@ pub const PrivatePayload = struct {
         std.crypto.random.bytes(&hdr.nonce);
 
         hdr.writeOffset(self.env().len);
+        hdr.writeKdfParams(kdf_params);
         ftr.magic = magic.*;
         ftr.version = format_version;
         ftr.writeOffset(stub_len);
 
         var key: [crypto.Aead.key_length]u8 = undefined;
         defer std.crypto.secureZero(u8, &key);
-        try crypto.kdf(gpa, &key, password, &hdr.salt);
+        try crypto.kdf(gpa, &key, password, &hdr.salt, kdf_params);
 
         crypto.Aead.encrypt(
             encrypted,
