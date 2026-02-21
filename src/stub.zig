@@ -54,22 +54,22 @@ const buf_size = 1024;
 pub fn main() void {
     run() catch |err| {
         const msg: ?[]const u8 = switch (err) {
-            error.NotATerminal => "Input is not a TTY.",
-            error.PasswordTooLong => "Password is too long.",
-            error.EmptyPassword => "Password cannot be empty.",
-            error.AuthenticationFailed => "Wrong password or corrupted file.",
-            error.NotAPackedFile => "Not a valid packed file.",
-            error.UnsupportedVersion => "Unsupported file format version.",
-            error.CapGetFailed => "Failed to read process capabilities.",
-            error.CapSetFailed => "Failed to set process capabilities.",
-            error.ExecFailed => "Failed to execute unpacked binary.",
-            error.OutOfMemory => "Out of memory.",
+            error.NotATerminal => "input is not a TTY.",
+            error.PasswordTooLong => "password is too long.",
+            error.EmptyPassword => "password cannot be empty.",
+            error.AuthenticationFailed => "wrong password or corrupted file.",
+            error.NotAPackedFile => "not a valid packed file.",
+            error.UnsupportedVersion => "unsupported file format version.",
+            error.CapGetFailed => "failed to read process capabilities.",
+            error.CapSetFailed => "failed to set process capabilities.",
+            error.ExecFailed => "failed to execute unpacked binary.",
+            error.OutOfMemory => "out of memory.",
             else => null,
         };
         if (msg) |m| {
             std.log.err("{s}", .{m});
         } else {
-            std.log.err("Unexpected error: {s}", .{@errorName(err)});
+            std.log.err("unexpected error: {s}", .{@errorName(err)});
         }
         std.process.exit(1);
     };
