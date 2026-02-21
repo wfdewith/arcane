@@ -51,12 +51,36 @@ const syscalls = struct {
 
 const buf_size = 1024;
 
-pub fn main() !void {
+pub fn main() void {
+    run() catch |err| {
+        const msg: ?[]const u8 = switch (err) {
+            error.NotATerminal => "Input is not a TTY.",
+            error.PasswordTooLong => "Password is too long.",
+            error.EmptyPassword => "Password cannot be empty.",
+            error.AuthenticationFailed => "Wrong password or corrupted file.",
+            error.NotAPackedFile => "Not a valid packed file.",
+            error.UnsupportedVersion => "Unsupported file format version.",
+            error.CapGetFailed => "Failed to read process capabilities.",
+            error.CapSetFailed => "Failed to set process capabilities.",
+            error.ExecFailed => "Failed to execute unpacked binary.",
+            error.OutOfMemory => "Out of memory.",
+            else => null,
+        };
+        if (msg) |m| {
+            std.log.err("{s}", .{m});
+        } else {
+            std.log.err("Unexpected error: {s}", .{@errorName(err)});
+        }
+        std.process.exit(1);
+    };
+}
+
+fn run() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const gpa = arena.allocator();
     defer arena.deinit();
 
-    const password = try getPassword(gpa);
+    const password = try crypto.promptPassword(gpa);
     defer std.crypto.secureZero(u8, password);
 
     const exe = try std.fs.openFileAbsolute("/proc/self/exe", .{});
@@ -69,18 +93,12 @@ pub fn main() !void {
     var write_buf: [buf_size]u8 = undefined;
     var writer = memfd_file.writerStreaming(&write_buf);
 
-    var private_payload = unpacker.unpack(
+    var private_payload = try unpacker.unpack(
         gpa,
         &reader.interface,
         &writer.interface,
         password,
-    ) catch |err| switch (err) {
-        error.AuthenticationFailed => {
-            std.log.err("Wrong password or corrupted file.", .{});
-            return err;
-        },
-        else => return err,
-    };
+    );
     try writer.end();
 
     if (private_payload.exe_type == .elf) {
@@ -96,21 +114,6 @@ pub fn main() !void {
     }
 
     try exec(gpa, memfd_file, &env_map);
-}
-
-fn getPassword(gpa: std.mem.Allocator) ![]u8 {
-    const pw = crypto.promptPassword(gpa) catch |err| switch (err) {
-        error.NotATerminal => {
-            std.log.err("Input is not a TTY.", .{});
-            return err;
-        },
-        error.PasswordTooLong => {
-            std.log.err("Password is too long.", .{});
-            return err;
-        },
-        else => return err,
-    };
-    return pw;
 }
 
 fn raiseAmbientCaps() !void {
