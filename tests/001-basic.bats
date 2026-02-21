@@ -87,7 +87,7 @@ SCRIPT
 @test "unsupported format version" {
     run "$ARCANE" unpack -p secret -o unpacked "$ARTIFACTS/wrong-version"
     [ "$status" -ne 0 ]
-    [[ "$output" == *"Unsupported format version"* ]]
+    [[ "$output" == *"unsupported format version"* ]]
 }
 
 @test "custom compression level round-trips" {
@@ -111,13 +111,13 @@ SCRIPT
 @test "reject compression level 0" {
     run "$ARCANE" pack -p secret -l 0 -o packed /usr/bin/ls
     [ "$status" -ne 0 ]
-    [[ "$output" == *"Compression level must be between 1 and 22"* ]]
+    [[ "$output" == *"compression level must be between 1 and 22"* ]]
 }
 
 @test "reject compression level 23" {
     run "$ARCANE" pack -p secret -l 23 -o packed /usr/bin/ls
     [ "$status" -ne 0 ]
-    [[ "$output" == *"Compression level must be between 1 and 22"* ]]
+    [[ "$output" == *"compression level must be between 1 and 22"* ]]
 }
 
 @test "reject kdf time 0" {
@@ -148,7 +148,7 @@ SCRIPT
     long_pw=$(printf '%0.sA' $(seq 1 1025))
     run send_password "$long_pw" "$ARCANE" pack -o packed /usr/bin/ls
     [ "$status" -ne 0 ]
-    [[ "$output" == *"Password is too long"* ]]
+    [[ "$output" == *"password is too long"* ]]
 }
 
 @test "reject password exceeding max length when running packed" {
@@ -156,7 +156,7 @@ SCRIPT
     long_pw=$(printf '%0.sA' $(seq 1 1025))
     run send_password "$long_pw" ./packed
     [ "$status" -ne 0 ]
-    [[ "$output" == *"Password is too long"* ]]
+    [[ "$output" == *"password is too long"* ]]
 }
 
 @test "run packed with wrong password fails" {

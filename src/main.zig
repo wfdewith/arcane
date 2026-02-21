@@ -225,7 +225,7 @@ fn pack() !void {
     const compression_level = pack_config.compression_level;
 
     if (compression_level < 1 or compression_level > 22) {
-        std.log.err("Compression level must be between 1 and 22.", .{});
+        std.log.err("compression level must be between 1 and 22.", .{});
         return error.InvalidCompressionLevel;
     }
     if (kdf_params.p == 0) {
@@ -276,11 +276,11 @@ fn unpack() !void {
         password,
     ) catch |err| switch (err) {
         error.NotAPackedFile => {
-            std.log.err("Input is not a packed executable.", .{});
+            std.log.err("input is not a packed executable.", .{});
             return err;
         },
         error.UnsupportedVersion => {
-            std.log.err("Unsupported format version.", .{});
+            std.log.err("unsupported format version.", .{});
             return err;
         },
         else => return err,
@@ -306,15 +306,15 @@ fn unpack() !void {
 fn getPassword(gpa: std.mem.Allocator) ![]u8 {
     const pw = crypto.promptPassword(gpa) catch |err| switch (err) {
         error.EmptyPassword => {
-            std.log.err("No password set.", .{});
+            std.log.err("no password set.", .{});
             return error.EmptyPassword;
         },
         error.NotATerminal => {
-            std.log.err("Input is not a TTY, use -p or ARCANE_PASSWORD to set password.", .{});
+            std.log.err("input is not a TTY, use -p or ARCANE_PASSWORD to set password.", .{});
             return err;
         },
         error.PasswordTooLong => {
-            std.log.err("Password is too long.", .{});
+            std.log.err("password is too long.", .{});
             return err;
         },
         else => return err,
@@ -326,7 +326,7 @@ fn parseEnv(gpa: std.mem.Allocator) !std.process.EnvMap {
     var env_map = std.process.EnvMap.init(gpa);
     for (pack_config.env) |env_var| {
         const idx = std.mem.indexOfScalar(u8, env_var, '=') orelse {
-            std.log.err("Variable '{s}' has no value", .{env_var});
+            std.log.err("variable '{s}' has no value", .{env_var});
             return error.MalformedEnvVariable;
         };
         const name = env_var[0..idx];
