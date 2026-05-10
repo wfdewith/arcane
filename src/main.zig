@@ -201,6 +201,18 @@ fn pack() !void {
     const io = pack_config.cfg.io;
     const gpa = pack_config.cfg.gpa;
 
+    // Workaround for sam701/zig-cli#72
+    defer gpa.free(pack_config.in_path);
+    defer if (pack_config.password) |password| {
+        gpa.free(password);
+    };
+    defer if (pack_config.out_path) |out_path| {
+        gpa.free(out_path);
+    };
+    defer for (pack_config.env) |env_var| {
+        gpa.free(env_var);
+    };
+
     const env = try parseEnv(gpa);
 
     const in_file = try std.Io.Dir.cwd().openFile(io, pack_config.in_path, .{});
@@ -271,6 +283,18 @@ fn pack() !void {
 fn unpack() !void {
     const io = pack_config.cfg.io;
     const gpa = pack_config.cfg.gpa;
+
+    // Workaround for sam701/zig-cli#72
+    defer gpa.free(unpack_config.in_path);
+    defer if (unpack_config.password) |password| {
+        gpa.free(password);
+    };
+    defer if (unpack_config.out_path) |out_path| {
+        gpa.free(out_path);
+    };
+    defer if (unpack_config.env_file) |env_path| {
+        gpa.free(env_path);
+    };
 
     const in_file = try std.Io.Dir.cwd().openFile(io, unpack_config.in_path, .{});
     defer in_file.close(io);
