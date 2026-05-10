@@ -15,31 +15,32 @@ pub const KdfParams = struct {
     p: u24, // parallelism
 };
 
-pub fn kdf(gpa: std.mem.Allocator, derived_key: []u8, password: []const u8, salt: []const u8, params: KdfParams) !void {
+pub fn kdf(io: std.Io, gpa: std.mem.Allocator, derived_key: []u8, password: []const u8, salt: []const u8, params: KdfParams) !void {
     const argon2 = std.crypto.pwhash.argon2;
     const argon2_params: argon2.Params = .{
         .m = params.m,
         .t = params.t,
         .p = params.p,
     };
-    return argon2.kdf(gpa, derived_key, password, salt, argon2_params, .argon2d);
+    return argon2.kdf(gpa, derived_key, password, salt, argon2_params, .argon2d, io);
 }
 
-pub fn promptPassword(gpa: std.mem.Allocator) ![]u8 {
-    var tty = std.fs.openFileAbsolute(
+pub fn promptPassword(io: std.Io, gpa: std.mem.Allocator) ![]u8 {
+    var tty = std.Io.Dir.openFileAbsolute(
+        io,
         "/dev/tty",
         .{ .mode = .read_write },
     ) catch |err| switch (err) {
         error.NoDevice => return error.NotATerminal,
         else => return err,
     };
-    defer tty.close();
+    defer tty.close(io);
 
     var read_buf: [buf_size]u8 = undefined;
-    var tty_reader = tty.readerStreaming(&read_buf);
+    var tty_reader = tty.readerStreaming(io, &read_buf);
     var reader = &tty_reader.interface;
     var write_buf: [buf_size]u8 = undefined;
-    var tty_writer = tty.writerStreaming(&write_buf);
+    var tty_writer = tty.writerStreaming(io, &write_buf);
     var writer = &tty_writer.interface;
 
     const termios = try posix.tcgetattr(tty.handle);

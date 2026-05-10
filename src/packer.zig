@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Io = std.Io;
 
-const zstd = @cImport(@cInclude("zstd.h"));
+const zstd = @import("zstd");
 
 const format = @import("format.zig");
 const crypto = @import("crypto.zig");
@@ -10,10 +10,11 @@ const crypto = @import("crypto.zig");
 const stub linksection(".stub") = @embedFile("stub");
 
 pub fn pack(
+    io: std.Io,
     gpa: std.mem.Allocator,
     reader: *Io.Reader,
     writer: *Io.Writer,
-    env: *const std.process.EnvMap,
+    env: *const std.process.Environ.Map,
     password: []const u8,
     compression_level: u8,
     kdf_params: crypto.KdfParams,
@@ -26,7 +27,7 @@ pub fn pack(
     var private_payload = try format.PrivatePayload.init(gpa, env, compressed_executable);
     defer private_payload.deinit(gpa);
 
-    const payload = try private_payload.encrypt(gpa, password, stub.len, kdf_params);
+    const payload = try private_payload.encrypt(io, gpa, password, stub.len, kdf_params);
     defer payload.deinit(gpa);
 
     try writer.writeAll(stub);

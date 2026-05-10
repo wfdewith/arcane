@@ -11,6 +11,7 @@ const zstd_window_size = 1 << 27;
 const elf_magic = "\x7fELF";
 
 pub fn unpack(
+    io: std.Io,
     gpa: std.mem.Allocator,
     reader: *Io.Reader,
     writer: *Io.Writer,
@@ -19,10 +20,10 @@ pub fn unpack(
     const file_data = try reader.allocRemaining(gpa, .unlimited);
 
     var payload = try format.Payload.extract(file_data);
-    var private_payload = try payload.decrypt(gpa, password);
+    var private_payload = try payload.decrypt(io, gpa, password);
 
     var compressed_reader = Io.Reader.fixed(private_payload.executable());
-    const decompress_buf = try gpa.alloc(u8, zstd_window_size);
+    const decompress_buf = try gpa.alloc(u8, zstd_window_size + std.compress.zstd.block_size_max);
     defer gpa.free(decompress_buf);
     var decompress = std.compress.zstd.Decompress.init(
         &compressed_reader,

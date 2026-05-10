@@ -10,6 +10,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const zstd = b.addTranslateC(.{
+        .root_source_file = b.path("src/zstd.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    zstd.linkSystemLibrary("libzstd", .{});
+
     const stub_mod = b.createModule(.{
         .root_source_file = b.path("src/stub.zig"),
         .target = target,
@@ -31,11 +38,11 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
 
-    packer_mod.linkSystemLibrary("libzstd", .{});
     packer_mod.addAnonymousImport("stub", .{
         .root_source_file = stub_exe.getEmittedBin(),
     });
     packer_mod.addImport("cli", cli_dep.module("cli"));
+    packer_mod.addImport("zstd", zstd.createModule());
 
     const packer_exe = b.addExecutable(.{
         .name = "arcane",

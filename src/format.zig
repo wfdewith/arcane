@@ -100,7 +100,7 @@ pub const Payload = struct {
         return self.data[header_offset..footer_offset];
     }
 
-    pub fn decrypt(self: *Self, gpa: std.mem.Allocator, password: []const u8) !PrivatePayload {
+    pub fn decrypt(self: *Self, io: std.Io, gpa: std.mem.Allocator, password: []const u8) !PrivatePayload {
         const hdr = self.header();
         const ftr = self.footer();
 
@@ -108,7 +108,7 @@ pub const Payload = struct {
 
         var key: [crypto.Aead.key_length]u8 = undefined;
         defer std.crypto.secureZero(u8, &key);
-        try crypto.kdf(gpa, &key, password, &hdr.salt, hdr.readKdfParams());
+        try crypto.kdf(io, gpa, &key, password, &hdr.salt, hdr.readKdfParams());
 
         try crypto.Aead.decrypt(
             decrypted,
@@ -157,7 +157,7 @@ pub const PrivatePayload = struct {
 
     pub fn init(
         gpa: std.mem.Allocator,
-        env_map: *const process.EnvMap,
+        env_map: *const process.Environ.Map,
         compressed_executable: []const u8,
     ) !PrivatePayload {
         var writer = Io.Writer.Allocating.init(gpa);
@@ -182,7 +182,14 @@ pub const PrivatePayload = struct {
         return self.data[self.executable_offset..];
     }
 
-    pub fn encrypt(self: *Self, gpa: std.mem.Allocator, password: []const u8, stub_len: usize, kdf_params: crypto.KdfParams) !Payload {
+    pub fn encrypt(
+        self: *Self,
+        io: std.Io,
+        gpa: std.mem.Allocator,
+        password: []const u8,
+        stub_len: usize,
+        kdf_params: crypto.KdfParams,
+    ) !Payload {
         const payload_data = try gpa.alloc(u8, Payload.size_overhead + self.data.len);
         var payload = Payload{ .data = payload_data };
 
@@ -191,8 +198,8 @@ pub const PrivatePayload = struct {
         const encrypted = payload.encryptedPayload();
 
         hdr.magic = magic.*;
-        std.crypto.random.bytes(&hdr.salt);
-        std.crypto.random.bytes(&hdr.nonce);
+        io.random(&hdr.salt);
+        io.random(&hdr.nonce);
 
         hdr.writeOffset(self.env().len);
         hdr.writeKdfParams(kdf_params);
@@ -202,7 +209,7 @@ pub const PrivatePayload = struct {
 
         var key: [crypto.Aead.key_length]u8 = undefined;
         defer std.crypto.secureZero(u8, &key);
-        try crypto.kdf(gpa, &key, password, &hdr.salt, kdf_params);
+        try crypto.kdf(io, gpa, &key, password, &hdr.salt, kdf_params);
 
         crypto.Aead.encrypt(
             encrypted,
@@ -229,8 +236,8 @@ pub const PrivatePayload = struct {
     }
 };
 
-pub fn encodeEnv(writer: *Io.Writer, env_map: *const process.EnvMap) !void {
-    try writer.writeInt(u32, env_map.count(), .little);
+pub fn encodeEnv(writer: *Io.Writer, env_map: *const process.Environ.Map) !void {
+    try writer.writeInt(u32, @intCast(env_map.count()), .little);
 
     var it = env_map.iterator();
     while (it.next()) |entry| {

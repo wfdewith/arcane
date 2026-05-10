@@ -1,9 +1,9 @@
 const std = @import("std");
-const posix = std.posix;
 const linux = std.os.linux;
 
 const crypto = @import("crypto.zig");
 const format = @import("format.zig");
+const posix = @import("posix.zig");
 const unpacker = @import("unpacker.zig");
 
 // linux/capability.h
@@ -24,7 +24,7 @@ const cap = struct {
 
 const syscalls = struct {
     fn execveat(
-        fd: posix.fd_t,
+        fd: std.posix.fd_t,
         path: [*:0]const u8,
         argv: [*:null]const ?[*:0]const u8,
         envp: [*:null]const ?[*:0]const u8,
@@ -51,8 +51,8 @@ const syscalls = struct {
 
 const buf_size = 1024;
 
-pub fn main() void {
-    run() catch |err| {
+pub fn main(init: std.process.Init.Minimal) void {
+    run(init) catch |err| {
         const msg: ?[]const u8 = switch (err) {
             error.NotATerminal => "input is not a TTY.",
             error.PasswordTooLong => "password is too long.",
@@ -75,25 +75,32 @@ pub fn main() void {
     };
 }
 
-fn run() !void {
+fn run(init: std.process.Init.Minimal) !void {
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const gpa = arena.allocator();
     defer arena.deinit();
 
-    const password = try crypto.promptPassword(gpa);
+    const password = try crypto.promptPassword(io, gpa);
     defer std.crypto.secureZero(u8, password);
 
-    const exe = try std.fs.openFileAbsolute("/proc/self/exe", .{});
+    const exe = try std.Io.Dir.openFileAbsolute(io, "/proc/self/exe", .{});
 
-    const memfd = try posix.memfd_create("", 0);
-    const memfd_file = std.fs.File{ .handle = memfd };
+    const memfd = try std.posix.memfd_create("", 0);
+    const memfd_file = std.Io.File{
+        .handle = memfd,
+        .flags = .{ .nonblocking = false },
+    };
 
     var read_buf: [buf_size]u8 = undefined;
-    var reader = exe.reader(&read_buf);
+    var reader = exe.reader(io, &read_buf);
     var write_buf: [buf_size]u8 = undefined;
-    var writer = memfd_file.writerStreaming(&write_buf);
+    var writer = memfd_file.writerStreaming(io, &write_buf);
 
     var private_payload = try unpacker.unpack(
+        io,
         gpa,
         &reader.interface,
         &writer.interface,
@@ -102,10 +109,10 @@ fn run() !void {
     try writer.end();
 
     if (private_payload.exe_type == .elf) {
-        _ = try posix.fcntl(memfd, posix.F.SETFD, posix.FD_CLOEXEC);
+        _ = try posix.fcntl(memfd, std.posix.F.SETFD, std.posix.FD_CLOEXEC);
     }
 
-    var env_map = try std.process.getEnvMap(gpa);
+    var env_map = try init.environ.createMap(gpa);
     defer env_map.deinit();
 
     var env_it = private_payload.envIterator();
@@ -113,7 +120,7 @@ fn run() !void {
         try env_map.put(env_var.name, env_var.value);
     }
 
-    try exec(gpa, memfd_file, &env_map);
+    try exec(gpa, init.args, memfd_file, &env_map);
 }
 
 fn raiseAmbientCaps() !void {
@@ -137,19 +144,27 @@ fn raiseAmbientCaps() !void {
         while (bits != 0) {
             const bit: u32 = @intCast(@ctz(bits));
             const cap_num = idx * 32 + bit;
-            _ = try posix.prctl(posix.PR.CAP_AMBIENT, .{ posix.PR.CAP_AMBIENT_RAISE, cap_num, 0, 0 });
+            _ = try std.posix.prctl(
+                std.posix.PR.CAP_AMBIENT,
+                .{ std.posix.PR.CAP_AMBIENT_RAISE, cap_num, 0, 0 },
+            );
             bits &= bits - 1;
         }
     }
 }
 
-fn exec(gpa: std.mem.Allocator, file: std.fs.File, env: *const std.process.EnvMap) !noreturn {
-    const argvp = @as([*:null]const ?[*:0]const u8, @ptrCast(std.os.argv.ptr));
-    const envp = try std.process.createNullDelimitedEnvMap(gpa, env);
+fn exec(
+    gpa: std.mem.Allocator,
+    args: std.process.Args,
+    file: std.Io.File,
+    env: *const std.process.Environ.Map,
+) !noreturn {
+    const argvp = @as([*:null]const ?[*:0]const u8, @ptrCast(args.vector));
+    const envp = (try env.createPosixBlock(gpa, .{})).slice;
 
     try raiseAmbientCaps();
 
-    if (syscalls.execveat(file.handle, "", argvp, envp, posix.AT.EMPTY_PATH) != 0) {
+    if (syscalls.execveat(file.handle, "", argvp, envp, std.posix.AT.EMPTY_PATH) != 0) {
         return error.ExecFailed;
     } else unreachable;
 }

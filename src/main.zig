@@ -10,8 +10,13 @@ const unpacker = @import("unpacker.zig");
 
 const buf_size = 1024;
 
-var pack_config = struct {
+const AppConfig = struct {
+    io: std.Io = undefined,
     gpa: std.mem.Allocator = undefined,
+};
+
+var pack_config = struct {
+    cfg: *const AppConfig = undefined,
     in_path: []const u8 = undefined,
     out_path: ?[]const u8 = null,
     password: ?[]u8 = null,
@@ -23,19 +28,19 @@ var pack_config = struct {
 }{};
 
 var unpack_config = struct {
-    gpa: std.mem.Allocator = undefined,
+    cfg: *const AppConfig = undefined,
     in_path: []const u8 = undefined,
     out_path: ?[]const u8 = null,
     password: ?[]u8 = null,
     env_file: ?[]const u8 = null,
 }{};
 
-pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-    const gpa = arena.allocator();
-    defer arena.deinit();
-
-    var r = try cli.AppRunner.init(gpa);
+pub fn main(init: std.process.Init) !void {
+    var r = cli.AppRunner.init(&init);
+    const cfg = AppConfig{
+        .io = init.io,
+        .gpa = init.gpa,
+    };
     const app = cli.App{
         .command = cli.Command{
             .name = "arcane",
@@ -48,8 +53,8 @@ pub fn main() !void {
             },
             .target = cli.CommandTarget{
                 .subcommands = try r.allocCommands(&.{
-                    try packCommand(&r, gpa),
-                    try unpackCommand(&r, gpa),
+                    try packCommand(&r, &cfg),
+                    try unpackCommand(&r, &cfg),
                 }),
             },
         },
@@ -57,8 +62,8 @@ pub fn main() !void {
     try r.run(&app);
 }
 
-fn packCommand(r: *cli.AppRunner, gpa: std.mem.Allocator) !cli.Command {
-    pack_config.gpa = gpa;
+fn packCommand(r: *cli.AppRunner, cfg: *const AppConfig) !cli.Command {
+    pack_config.cfg = cfg;
     return cli.Command{
         .name = "pack",
         .description = .{ .one_line = "Pack an executable." },
@@ -137,8 +142,8 @@ fn packCommand(r: *cli.AppRunner, gpa: std.mem.Allocator) !cli.Command {
     };
 }
 
-fn unpackCommand(r: *cli.AppRunner, gpa: std.mem.Allocator) !cli.Command {
-    unpack_config.gpa = gpa;
+fn unpackCommand(r: *cli.AppRunner, cfg: *const AppConfig) !cli.Command {
+    unpack_config.cfg = cfg;
     return cli.Command{
         .name = "unpack",
         .description = .{ .one_line = "Unpack a packed executable." },
@@ -193,29 +198,32 @@ fn unpackCommand(r: *cli.AppRunner, gpa: std.mem.Allocator) !cli.Command {
 }
 
 fn pack() !void {
-    const gpa = pack_config.gpa;
+    const io = pack_config.cfg.io;
+    const gpa = pack_config.cfg.gpa;
+
     const env = try parseEnv(gpa);
 
-    const in_file = try std.fs.cwd().openFile(pack_config.in_path, .{});
-    defer in_file.close();
+    const in_file = try std.Io.Dir.cwd().openFile(io, pack_config.in_path, .{});
+    defer in_file.close(io);
 
     const out_path = pack_config.out_path orelse blk: {
         const p = try std.fmt.allocPrint(gpa, "{s}.packed", .{pack_config.in_path});
         break :blk std.fs.path.basename(p);
     };
-    const out_file = try std.fs.cwd().createFile(
+    const out_file = try std.Io.Dir.cwd().createFile(
+        io,
         out_path,
-        .{ .mode = posix.S.IRWXU | posix.S.IRWXG | posix.S.IRWXO },
+        .{ .permissions = .fromMode(0o777) },
     );
-    defer out_file.close();
+    defer out_file.close(io);
 
-    const password = pack_config.password orelse try getPassword(gpa);
+    const password = pack_config.password orelse try getPassword(io, gpa);
     defer std.crypto.secureZero(u8, password);
 
     var read_buf: [buf_size]u8 = undefined;
-    var reader = in_file.reader(&read_buf);
+    var reader = in_file.reader(io, &read_buf);
     var write_buf: [buf_size]u8 = undefined;
-    var writer = out_file.writerStreaming(&write_buf);
+    var writer = out_file.writerStreaming(io, &write_buf);
 
     const kdf_params = crypto.KdfParams{
         .m = pack_config.argon2_memory,
@@ -241,35 +249,47 @@ fn pack() !void {
         return error.InvalidKdfParams;
     }
 
-    try packer.pack(gpa, &reader.interface, &writer.interface, &env, password, compression_level, kdf_params);
+    try packer.pack(
+        io,
+        gpa,
+        &reader.interface,
+        &writer.interface,
+        &env,
+        password,
+        compression_level,
+        kdf_params,
+    );
     try writer.end();
 }
 
 fn unpack() !void {
-    const gpa = unpack_config.gpa;
+    const io = pack_config.cfg.io;
+    const gpa = pack_config.cfg.gpa;
 
-    const in_file = try std.fs.cwd().openFile(unpack_config.in_path, .{});
-    defer in_file.close();
+    const in_file = try std.Io.Dir.cwd().openFile(io, unpack_config.in_path, .{});
+    defer in_file.close(io);
 
     const out_path = unpack_config.out_path orelse blk: {
         const p = try std.fmt.allocPrint(gpa, "{s}.unpacked", .{unpack_config.in_path});
         break :blk std.fs.path.basename(p);
     };
-    const out_file = try std.fs.cwd().createFile(
+    const out_file = try std.Io.Dir.cwd().createFile(
+        io,
         out_path,
-        .{ .mode = posix.S.IRWXU | posix.S.IRWXG | posix.S.IRWXO },
+        .{ .permissions = .fromMode(0o777) },
     );
-    defer out_file.close();
+    defer out_file.close(io);
 
-    const password = unpack_config.password orelse try getPassword(gpa);
+    const password = unpack_config.password orelse try getPassword(io, gpa);
     defer std.crypto.secureZero(u8, password);
 
     var read_buf: [buf_size]u8 = undefined;
-    var reader = in_file.reader(&read_buf);
+    var reader = in_file.reader(io, &read_buf);
     var write_buf: [buf_size]u8 = undefined;
-    var writer = out_file.writerStreaming(&write_buf);
+    var writer = out_file.writerStreaming(io, &write_buf);
 
     var private_payload = unpacker.unpack(
+        io,
         gpa,
         &reader.interface,
         &writer.interface,
@@ -288,10 +308,10 @@ fn unpack() !void {
     try writer.end();
 
     if (unpack_config.env_file) |env_path| {
-        const env_file = try std.fs.cwd().createFile(env_path, .{});
-        defer env_file.close();
+        const env_file = try std.Io.Dir.cwd().createFile(io, env_path, .{});
+        defer env_file.close(io);
         var env_write_buf: [buf_size]u8 = undefined;
-        var env_writer = env_file.writerStreaming(&env_write_buf);
+        var env_writer = env_file.writerStreaming(io, &env_write_buf);
         var env_it = private_payload.envIterator();
         while (env_it.next()) |env_var| {
             try env_writer.interface.writeAll(env_var.name);
@@ -303,8 +323,8 @@ fn unpack() !void {
     }
 }
 
-fn getPassword(gpa: std.mem.Allocator) ![]u8 {
-    const pw = crypto.promptPassword(gpa) catch |err| switch (err) {
+fn getPassword(io: std.Io, gpa: std.mem.Allocator) ![]u8 {
+    const pw = crypto.promptPassword(io, gpa) catch |err| switch (err) {
         error.EmptyPassword => {
             std.log.err("no password set.", .{});
             return error.EmptyPassword;
@@ -322,10 +342,10 @@ fn getPassword(gpa: std.mem.Allocator) ![]u8 {
     return pw;
 }
 
-fn parseEnv(gpa: std.mem.Allocator) !std.process.EnvMap {
-    var env_map = std.process.EnvMap.init(gpa);
+fn parseEnv(gpa: std.mem.Allocator) !std.process.Environ.Map {
+    var env_map = std.process.Environ.Map.init(gpa);
     for (pack_config.env) |env_var| {
-        const idx = std.mem.indexOfScalar(u8, env_var, '=') orelse {
+        const idx = std.mem.findScalar(u8, env_var, '=') orelse {
             std.log.err("variable '{s}' has no value", .{env_var});
             return error.MalformedEnvVariable;
         };
