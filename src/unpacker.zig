@@ -18,6 +18,7 @@ pub fn unpack(
     password: []const u8,
 ) !format.PrivatePayload {
     const file_data = try reader.allocRemaining(gpa, .unlimited);
+    defer gpa.free(file_data);
 
     var payload = try format.Payload.extract(file_data);
     var private_payload = try payload.decrypt(io, gpa, password);

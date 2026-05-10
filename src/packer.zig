@@ -20,6 +20,7 @@ pub fn pack(
     kdf_params: crypto.KdfParams,
 ) !void {
     const executable = try reader.allocRemaining(gpa, .unlimited);
+    defer gpa.free(executable);
 
     const compressed_executable = try compress(gpa, executable, compression_level);
     defer gpa.free(compressed_executable);
