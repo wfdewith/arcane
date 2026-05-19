@@ -206,15 +206,12 @@ fn pack() !void {
     const in_file = try std.Io.Dir.cwd().openFile(io, pack_config.in_path, .{});
     defer in_file.close(io);
 
-    const out_path = try if (pack_config.out_path) |out_path| gpa.dupe(
-        u8,
-        out_path,
-    ) else std.fmt.allocPrint(
+    const out_path = pack_config.out_path orelse try std.fmt.allocPrint(
         gpa,
         "{s}.packed",
         .{std.fs.path.basename(pack_config.in_path)},
     );
-    defer gpa.free(out_path);
+    defer if (pack_config.out_path == null) gpa.free(out_path);
     const out_file = try std.Io.Dir.cwd().createFile(
         io,
         out_path,
@@ -222,9 +219,9 @@ fn pack() !void {
     );
     defer out_file.close(io);
 
-    const password = try if (pack_config.password) |password| gpa.dupe(u8, password) else getPassword(io, gpa);
+    const password = pack_config.password orelse try getPassword(io, gpa);
     defer std.crypto.secureZero(u8, password);
-    defer gpa.free(password);
+    defer if (pack_config.password == null) gpa.free(password);
 
     var read_buf: [buf_size]u8 = undefined;
     var reader = in_file.reader(io, &read_buf);
@@ -275,15 +272,12 @@ fn unpack() !void {
     const in_file = try std.Io.Dir.cwd().openFile(io, unpack_config.in_path, .{});
     defer in_file.close(io);
 
-    const out_path = try if (unpack_config.out_path) |out_path| gpa.dupe(
-        u8,
-        out_path,
-    ) else std.fmt.allocPrint(
+    const out_path = unpack_config.out_path orelse try std.fmt.allocPrint(
         gpa,
         "{s}.unpacked",
         .{std.fs.path.basename(unpack_config.in_path)},
     );
-    defer gpa.free(out_path);
+    defer if (unpack_config.out_path == null) gpa.free(out_path);
     const out_file = try std.Io.Dir.cwd().createFile(
         io,
         out_path,
@@ -291,9 +285,9 @@ fn unpack() !void {
     );
     defer out_file.close(io);
 
-    const password = try if (unpack_config.password) |password| gpa.dupe(u8, password) else getPassword(io, gpa);
+    const password = unpack_config.password orelse try getPassword(io, gpa);
     defer std.crypto.secureZero(u8, password);
-    defer gpa.free(password);
+    defer if (unpack_config.password == null) gpa.free(password);
 
     var read_buf: [buf_size]u8 = undefined;
     var reader = in_file.reader(io, &read_buf);
