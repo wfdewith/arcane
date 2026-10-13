@@ -105,6 +105,7 @@ pub const Payload = struct {
         const ftr = self.footer();
 
         const decrypted = try gpa.alloc(u8, self.encryptedPayload().len);
+        errdefer gpa.free(decrypted);
 
         var key: [crypto.Aead.key_length]u8 = undefined;
         defer std.crypto.secureZero(u8, &key);
