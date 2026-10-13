@@ -7,7 +7,7 @@ pub const Aead = std.crypto.aead.aes_gcm.Aes256Gcm;
 pub const salt_length = 16;
 
 const buf_size = 1024;
-const password_length = 1024;
+pub const max_password_length = 1024;
 
 pub const KdfParams = struct {
     m: u32, // memory in KB
@@ -25,7 +25,23 @@ pub fn kdf(io: std.Io, gpa: std.mem.Allocator, derived_key: []u8, password: []co
     return argon2.kdf(gpa, derived_key, password, salt, argon2_params, .argon2d, io);
 }
 
-pub fn promptPassword(io: std.Io, gpa: std.mem.Allocator) ![]u8 {
+pub const Password = union(enum) {
+    fixed: []const u8,
+    prompt: *const fn (io: std.Io, buf: []u8) anyerror![]const u8,
+
+    pub fn resolve(self: Password, io: std.Io, buf: []u8) ![]const u8 {
+        return switch (self) {
+            .fixed => |fixed| blk: {
+                if (fixed.len > buf.len) return error.PasswordTooLong;
+                @memcpy(buf[0..fixed.len], fixed);
+                break :blk buf[0..fixed.len];
+            },
+            .prompt => |promptFn| promptFn(io, buf),
+        };
+    }
+};
+
+pub fn promptPassword(io: std.Io, buf: []u8) ![]const u8 {
     var tty = std.Io.Dir.openFileAbsolute(
         io,
         "/dev/tty",
@@ -53,7 +69,8 @@ pub fn promptPassword(io: std.Io, gpa: std.mem.Allocator) ![]u8 {
     _ = try writer.write("Password: ");
     try writer.flush();
 
-    var pw_buf = try std.ArrayList(u8).initCapacity(gpa, password_length);
+    var len: usize = 0;
+    var too_long = false;
     while (true) {
         const ch = reader.takeByte() catch |err| switch (err) {
             error.EndOfStream => break,
@@ -62,22 +79,23 @@ pub fn promptPassword(io: std.Io, gpa: std.mem.Allocator) ![]u8 {
         if (ch == '\r' or ch == '\n') {
             break;
         }
-        if (pw_buf.items.len < pw_buf.capacity) {
-            pw_buf.appendAssumeCapacity(ch);
+        if (len < buf.len) {
+            buf[len] = ch;
+            len += 1;
+        } else {
+            too_long = true;
         }
     }
 
     _ = try writer.write("\n");
     try writer.flush();
 
-    if (pw_buf.items.len == pw_buf.capacity) {
+    if (too_long) {
         return error.PasswordTooLong;
     }
-
-    const password = try pw_buf.toOwnedSlice(gpa);
-    if (password.len == 0) {
+    if (len == 0) {
         return error.EmptyPassword;
     }
 
-    return password;
+    return buf[0..len];
 }

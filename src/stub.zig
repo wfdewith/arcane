@@ -83,9 +83,6 @@ fn run(init: std.process.Init.Minimal) !void {
     const gpa = arena.allocator();
     defer arena.deinit();
 
-    const password = try crypto.promptPassword(io, gpa);
-    defer std.crypto.secureZero(u8, password);
-
     const exe = try std.Io.Dir.openFileAbsolute(io, "/proc/self/exe", .{});
 
     const memfd = try std.posix.memfd_create("", 0);
@@ -104,7 +101,7 @@ fn run(init: std.process.Init.Minimal) !void {
         gpa,
         &reader.interface,
         &writer.interface,
-        password,
+        .{ .prompt = &crypto.promptPassword },
     );
     try writer.end();
 

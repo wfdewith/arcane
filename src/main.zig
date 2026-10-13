@@ -219,9 +219,14 @@ fn pack() !void {
     );
     defer out_file.close(io);
 
-    const password = pack_config.password orelse try getPassword(io, gpa);
-    defer std.crypto.secureZero(u8, password);
-    defer if (pack_config.password == null) gpa.free(password);
+    var pw_buf: [crypto.max_password_length]u8 = undefined;
+    defer std.crypto.secureZero(u8, &pw_buf);
+    const password_source: crypto.Password = if (pack_config.password) |pw|
+        .{ .fixed = pw }
+    else
+        .{ .prompt = &getPassword };
+    defer if (pack_config.password) |pw| std.crypto.secureZero(u8, pw);
+    const password = try password_source.resolve(io, &pw_buf);
 
     var read_buf: [buf_size]u8 = undefined;
     var reader = in_file.reader(io, &read_buf);
@@ -285,9 +290,11 @@ fn unpack() !void {
     );
     defer out_file.close(io);
 
-    const password = unpack_config.password orelse try getPassword(io, gpa);
-    defer std.crypto.secureZero(u8, password);
-    defer if (unpack_config.password == null) gpa.free(password);
+    const password: crypto.Password = if (unpack_config.password) |pw|
+        .{ .fixed = pw }
+    else
+        .{ .prompt = &getPassword };
+    defer if (unpack_config.password) |pw| std.crypto.secureZero(u8, pw);
 
     var read_buf: [buf_size]u8 = undefined;
     var reader = in_file.reader(io, &read_buf);
@@ -329,8 +336,8 @@ fn unpack() !void {
     }
 }
 
-fn getPassword(io: std.Io, gpa: std.mem.Allocator) ![]u8 {
-    const pw = crypto.promptPassword(io, gpa) catch |err| switch (err) {
+fn getPassword(io: std.Io, buf: []u8) ![]const u8 {
+    return crypto.promptPassword(io, buf) catch |err| switch (err) {
         error.EmptyPassword => {
             std.log.err("no password set.", .{});
             return error.EmptyPassword;
@@ -345,7 +352,6 @@ fn getPassword(io: std.Io, gpa: std.mem.Allocator) ![]u8 {
         },
         else => return err,
     };
-    return pw;
 }
 
 fn parseEnv(gpa: std.mem.Allocator) !std.process.Environ.Map {

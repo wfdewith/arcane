@@ -18,6 +18,26 @@ send_password() {
 EOF
 }
 
+send_passwords() {
+    local passwords="$1"
+    shift
+    local script=""
+    local pw
+    while IFS= read -r pw; do
+        script="$script
+        expect \"Password:\"
+        send \"$pw\\n\""
+    done < <(printf '%s\n' "$passwords" | tr '|' '\n')
+    expect <<EOF
+        log_user 1
+        spawn $*
+        $script
+        expect eof
+        lassign [wait] _ _ _ code
+        exit \$code
+EOF
+}
+
 @test "pack and unpack an ELF binary" {
     "$ARCANE" pack -p secret -o packed /usr/bin/ls
     "$ARCANE" unpack -p secret -o unpacked packed
@@ -161,6 +181,27 @@ SCRIPT
 
 @test "run packed with wrong password fails" {
     "$ARCANE" pack -p right -o packed /usr/bin/echo
-    run send_password wrong ./packed
+    run send_passwords "wrong1|wrong2|wrong3" ./packed
     [ "$status" -ne 0 ]
+    [[ "$output" == *"wrong password"* ]]
+}
+
+@test "run packed with wrong passwords then correct succeeds" {
+    "$ARCANE" pack -p secret -o packed /usr/bin/echo
+    result=$(send_passwords "wrong1|wrong2|secret" ./packed hello world)
+    [[ "$result" == *"hello world"* ]]
+}
+
+@test "unpack prompts up to three times" {
+    "$ARCANE" pack -p secret -o packed /usr/bin/ls
+    run send_passwords "wrong1|wrong2|secret" "$ARCANE" unpack -o unpacked packed
+    [ "$status" -eq 0 ]
+    cmp /usr/bin/ls unpacked
+}
+
+@test "unpack fails after three wrong passwords" {
+    "$ARCANE" pack -p secret -o packed /usr/bin/ls
+    run send_passwords "wrong1|wrong2|wrong3" "$ARCANE" unpack -o unpacked packed
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"wrong password"* ]]
 }
