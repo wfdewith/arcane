@@ -37,6 +37,7 @@ var unpack_config = struct {
 
 pub fn main(init: std.process.Init) !void {
     var r = cli.AppRunner.init(&init);
+    defer r.deinit();
     const cfg = AppConfig{
         .io = init.io,
         .gpa = init.arena.allocator(),

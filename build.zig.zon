@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .cli = .{
-            .url = "git+https://github.com/sam701/zig-cli#4841cdaed94b920c91ea171beed159976264270a",
-            .hash = "cli-0.10.0-2eKe_1sIAQDecE0Bz5gAm7aLcWz5wBAc8KxlP1YQPEWr",
+            .url = "git+https://github.com/sam701/zig-cli#d2ed91f8d7d4bed85d89a54f4cfc91e2fe66e7a7",
+            .hash = "cli-0.12.0-2eKe__kOAQC6VETttxaViKBGYMCGU3qGilpD78MenETi",
         },
     },
     .paths = .{
