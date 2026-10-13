@@ -224,7 +224,7 @@ fn pack() !void {
     const password_source: crypto.Password = if (pack_config.password) |pw|
         .{ .fixed = pw }
     else
-        .{ .prompt = &getPassword };
+        .{ .prompt = &getNewPassword };
     defer if (pack_config.password) |pw| std.crypto.secureZero(u8, pw);
     const password = try password_source.resolve(io, &pw_buf);
 
@@ -337,7 +337,19 @@ fn unpack() !void {
 }
 
 fn getPassword(io: std.Io, buf: []u8) ![]const u8 {
-    return crypto.promptPassword(io, buf) catch |err| switch (err) {
+    return mapPrompt(crypto.promptPassword, io, buf);
+}
+
+fn getNewPassword(io: std.Io, buf: []u8) ![]const u8 {
+    return mapPrompt(crypto.promptNewPassword, io, buf);
+}
+
+fn mapPrompt(
+    promptFn: *const fn (std.Io, []u8) anyerror![]const u8,
+    io: std.Io,
+    buf: []u8,
+) ![]const u8 {
+    return promptFn(io, buf) catch |err| switch (err) {
         error.EmptyPassword => {
             std.log.err("no password set.", .{});
             return error.EmptyPassword;
@@ -348,6 +360,10 @@ fn getPassword(io: std.Io, buf: []u8) ![]const u8 {
         },
         error.PasswordTooLong => {
             std.log.err("password is too long.", .{});
+            return err;
+        },
+        error.PasswordMismatch => {
+            std.log.err("passwords do not match.", .{});
             return err;
         },
         else => return err,

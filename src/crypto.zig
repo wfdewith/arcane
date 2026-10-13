@@ -42,6 +42,20 @@ pub const Password = union(enum) {
 };
 
 pub fn promptPassword(io: std.Io, buf: []u8) ![]const u8 {
+    return prompt(io, buf, "Password: ");
+}
+
+pub fn promptNewPassword(io: std.Io, buf: []u8) ![]const u8 {
+    var confirm_buf: [max_password_length]u8 = undefined;
+    defer std.crypto.secureZero(u8, &confirm_buf);
+
+    const password = try prompt(io, buf, "Password: ");
+    const confirm = try prompt(io, confirm_buf[0..buf.len], "Confirm password: ");
+    if (!std.mem.eql(u8, password, confirm)) return error.PasswordMismatch;
+    return password;
+}
+
+fn prompt(io: std.Io, buf: []u8, label: []const u8) ![]const u8 {
     var tty = std.Io.Dir.openFileAbsolute(
         io,
         "/dev/tty",
@@ -66,7 +80,7 @@ pub fn promptPassword(io: std.Io, buf: []u8) ![]const u8 {
     new_termios.lflag.ICANON = false;
     try posix.tcsetattr(tty.handle, posix.TCSA.NOW, new_termios);
 
-    _ = try writer.write("Password: ");
+    _ = try writer.write(label);
     try writer.flush();
 
     var len: usize = 0;

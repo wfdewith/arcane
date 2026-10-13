@@ -38,6 +38,32 @@ send_passwords() {
 EOF
 }
 
+send_new_passwords() {
+    local passwords="$1"
+    shift
+    local script=""
+    local prompt="Password:"
+    local pw
+    while IFS= read -r pw; do
+        script="$script
+        expect \"$prompt\"
+        send \"$pw\\n\""
+        if [ "$prompt" = "Password:" ]; then
+            prompt="Confirm password:"
+        else
+            prompt="Password:"
+        fi
+    done < <(printf '%s\n' "$passwords" | tr '|' '\n')
+    expect <<EOF
+        log_user 1
+        spawn $*
+        $script
+        expect eof
+        lassign [wait] _ _ _ code
+        exit \$code
+EOF
+}
+
 @test "pack and unpack an ELF binary" {
     "$ARCANE" pack -p secret -o packed /usr/bin/ls
     "$ARCANE" unpack -p secret -o unpacked packed
@@ -72,6 +98,29 @@ EOF
     "$ARCANE" pack -p right -o packed /usr/bin/ls
     run "$ARCANE" unpack -p wrong -o unpacked packed
     [ "$status" -ne 0 ]
+}
+
+@test "pack asks for password confirmation" {
+    cat > script.sh <<'SCRIPT'
+#!/bin/sh
+echo hello
+SCRIPT
+    chmod +x script.sh
+    run send_new_passwords "secret|secret" "$ARCANE" pack -o packed script.sh
+    [ "$status" -eq 0 ]
+    "$ARCANE" unpack -p secret -o unpacked packed
+    cmp script.sh unpacked
+}
+
+@test "pack fails when confirmation does not match" {
+    cat > script.sh <<'SCRIPT'
+#!/bin/sh
+echo hello
+SCRIPT
+    chmod +x script.sh
+    run send_new_passwords "secret|wrong" "$ARCANE" pack -o packed script.sh
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"passwords do not match"* ]]
 }
 
 @test "run a packed ELF binary" {
