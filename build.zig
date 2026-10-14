@@ -23,6 +23,7 @@ pub fn build(b: *std.Build) void {
         .optimize = stub_optimize,
         .strip = optimize != .Debug,
         .single_threaded = true,
+        .unwind_tables = if (stub_optimize == .Debug) null else .none,
     });
 
     const stub_exe = b.addExecutable(.{
