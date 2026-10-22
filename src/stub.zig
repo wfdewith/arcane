@@ -7,13 +7,13 @@ const format = @import("format.zig");
 const posix = @import("posix.zig");
 const unpacker = @import("unpacker.zig");
 
-pub const std_options: std.Options = if (builtin.mode != .Debug) .{
+pub const std_options: std.Options = if (builtin.mode != .debug) .{
     .enable_segfault_handler = false,
     .signal_stack_size = null,
     .allow_stack_tracing = false,
     .networking = false,
 } else .{};
-pub const panic = if (builtin.mode != .Debug)
+pub const panic = if (builtin.mode != .debug)
     std.debug.no_panic
 else
     std.debug.FullPanic(std.debug.defaultPanic);

@@ -21,10 +21,10 @@ var pack_config = struct {
     out_path: ?[]const u8 = null,
     password: ?[]u8 = null,
     env: []const []const u8 = undefined,
-    compression_level: u8 = if (builtin.mode == .Debug) 1 else 22,
-    argon2_memory: u32 = if (builtin.mode == .Debug) 2 * 1024 else 2 * 1024 * 1024,
+    compression_level: u8 = if (builtin.mode == .debug) 1 else 22,
+    argon2_memory: u32 = if (builtin.mode == .debug) 2 * 1024 else 2 * 1024 * 1024,
     argon2_time: u32 = 1,
-    argon2_parallelism: u24 = if (builtin.mode == .Debug) 1 else 8,
+    argon2_parallelism: u24 = if (builtin.mode == .debug) 1 else 8,
 }{};
 
 var unpack_config = struct {
